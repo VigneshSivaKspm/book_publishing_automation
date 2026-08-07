@@ -1,0 +1,10 @@
+{
+  "description": "A professional desktop software solution built for efficiency and ease, offering seamless performance and a modern user interface for enhanced productivity.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

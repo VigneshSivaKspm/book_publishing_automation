@@ -1,0 +1,792 @@
+================================================================================
+  Figma — COMPLETE USER & FEATURE GUIDE
+  Automated Book & Question Bank Publishing Suite
+================================================================================
+
+This guide explains the whole software in simple English.
+You do not need to be a programmer to understand it.
+
+What is Figma?
+-------------------
+Figma helps teams write exam books and MCQ question banks faster.
+
+In normal Word software, people spend many hours fixing:
+  - alignment
+  - page size
+  - headers and footers
+  - question numbering
+  - print layout
+
+Figma does that layout work for you.
+You mainly type the questions. The software handles the look and print setup.
+
+
+================================================================================
+PART 1 — HOW TO OPEN AND START
+================================================================================
+
+1. Open the project folder.
+2. Run the app (dev server is usually already running).
+3. You will see the Login screen first.
+4. Click "Sign in to workspace" (demo login works).
+5. After login, you enter the main software.
+
+User name shown in the app: Karthikeyan
+
+
+================================================================================
+PART 2 — MAIN WORKFLOW (4 STEPS)
+================================================================================
+
+The software follows 4 simple steps:
+
+  Step 1 → Content Ingestion & Template Setup
+           Type or paste questions. Choose a template.
+
+  Step 2 → Automated Layout & Styling
+           Software aligns text, options, fonts, and spacing.
+
+  Step 3 → Quality Control & Preview
+           Check numbering, headers, footers, and layout errors.
+
+  Step 4 → Multi-Size Export & Print
+           Export as A4, B5, or 8×8 print-ready files.
+
+
+================================================================================
+PART 3 — EVERY SCREEN (MODULE) EXPLAINED
+================================================================================
+
+
+----------------------------------------
+1) LOGIN SCREEN
+   File: src/pages/Login.tsx
+----------------------------------------
+
+Purpose:
+  Secure entry into the software.
+
+What you see:
+  - Left side: brand message and benefits
+  - Right side: email and password form
+
+Features:
+  - Work email field
+  - Password field
+  - "Forgot?" link
+  - Sign in button
+  - Demo login (click Sign in to continue)
+
+Why it exists:
+  Only allowed users should open the publishing workspace.
+
+
+----------------------------------------
+2) SIDEBAR (LEFT MENU)
+   File: src/components/Sidebar.tsx
+----------------------------------------
+
+Purpose:
+  Move between all main parts of the software.
+
+Menu items:
+  - Dashboard      → Home overview
+  - Books          → Book and chapter management
+  - Quick Editor   → Type questions fast
+  - Past Papers    → Previous year question papers
+  - QC Review      → Quality checks
+  - Templates      → Ready-made question layouts
+  - Insights       → Work stats and time saved
+  - Settings       → App preferences
+
+Extra buttons:
+  - New Publication → Opens the editor
+  - Quick command   → Opens search/command box (Ctrl+K)
+  - Export / Print  → Opens export window
+  - Collapse arrow  → Makes sidebar thin to save space
+
+User area:
+  Shows your name (Karthikeyan) and role.
+
+
+----------------------------------------
+3) DASHBOARD
+   File: src/pages/Dashboard.tsx
+----------------------------------------
+
+Purpose:
+  Your home page. See work status quickly.
+
+Features:
+  - Welcome message
+  - QC flags count (things to fix)
+  - Books ready to export
+  - Time saved this month
+  - 4-step production workflow cards
+  - Stats cards:
+      * Active books
+      * Questions typed
+      * Export ready
+      * Time saved
+  - Active publications list with progress
+  - Filters: All / Ready / Review / Draft
+  - Time-saver shortcuts:
+      * Paste from Word
+      * Bulk renumber
+      * Clone chapter
+      * Answer key sheet
+  - Tip of the day
+  - Search / jump button (opens command palette)
+  - Export button
+
+Why it helps:
+  You can start work without hunting for files.
+
+
+----------------------------------------
+4) BOOKS / PROJECT VIEW
+   File: src/pages/ProjectView.tsx
+----------------------------------------
+
+Purpose:
+  Manage one full book — chapters and sections.
+
+Left side — Structure tree:
+  - List of chapters (CH01, CH02, ...)
+  - Expand chapter to see sections
+  - Status dots (Print-Ready / Review / Draft)
+  - Add Chapter button
+  - Totals: Questions, Pages, Chapters
+
+Right side — Chapter details:
+  - Chapter title and status
+  - Question / page / section counts
+  - Layout config (template, paper size, columns, font)
+  - Section breakdown with progress bars
+
+Action buttons:
+  - Clone chapter     → Copy chapter structure fast
+  - Open editor       → Edit questions
+  - Export            → Print/export this book
+  - Edit in Quick Editor
+  - Run QC
+
+Why it helps:
+  Organise big books without confusion.
+
+
+----------------------------------------
+5) QUICK EDITOR (MOST IMPORTANT MODULE)
+   File: src/pages/Editor.tsx
+   Helper: src/lib/editorEngine.ts
+----------------------------------------
+
+Purpose:
+  Type questions quickly. See print preview live.
+
+The editor has 3 columns:
+
+  LEFT  → Blocks / Options / Marks library
+  MIDDLE → Typing area
+  RIGHT → Live print preview
+
+
+A) Top toolbar features
+-----------------------
+  - Book title (current book name)
+  - Paper size switch: A4 | B5 | 8×8
+      * Changing size updates the live preview shape
+  - Column switch: 1-col | 2-col
+      * Changes how options are shown
+  - Undo / Redo
+  - Auto-number
+      * Fixes question numbers in order (101, 102, 103...)
+  - Paste import
+      * Paste text from Word/Excel and clean it
+  - Balanced / Overflow mode
+      * Balanced = auto fix page overflow
+      * Overflow mode = show warning if content is too long
+  - Shortcuts button
+  - Auto-save status
+  - QC button
+  - Export button
+
+
+B) Left library — Blocks tab
+----------------------------
+Insert ready question shapes with one click:
+
+  - MCQ — A B C D      (Ctrl+4)
+  - MCQ — A–E          (Ctrl+5)
+  - True / False       (Ctrl+T)
+  - Fill blank         (Ctrl+F)
+  - Match list         (Ctrl+M)
+  - Assertion-Reason
+
+Each insert adds the next correct question number.
+
+
+C) Left library — Options tab
+-----------------------------
+Change how options look:
+
+  - A, B, C, D format
+  - A, B, C, D, E format
+  - i, ii, iii, iv format
+  - 1, 2, 3, 4 format
+  - ABCD inline (all options on one line)
+  - Toggle 1-column / 2-column layout
+
+
+D) Left library — Marks tab
+---------------------------
+Insert special markers:
+
+  - ★ Key point
+  - ✓ Answer
+  - ◆ Definition
+  - → Direction
+  - • Subpoint
+  - — Em dash
+
+
+E) Middle typing area
+--------------------
+  - Type questions in plain text
+  - Format example:
+
+      101. Question text here?
+      (A) Option one
+      (B) Option two
+      (C) Option three
+      (D) Option four [✓ D]
+
+  - Status bar shows:
+      * Format version
+      * Column mode
+      * Current paper size
+      * Character count
+
+
+F) Right live preview
+---------------------
+  - Shows pages like real paper
+  - Changes when you type
+  - Changes when you switch A4 / B5 / 8×8
+  - Mini paper shapes at top to compare sizes
+  - Shows headers and footers
+  - Shows overflow warning if content does not fit
+  - Click overflow warning to rebalance
+
+
+G) Editor brain (engine)
+   File: src/lib/editorEngine.ts
+------------------------------------------------
+This file does the smart work behind the editor:
+
+  - parseQuestions()
+      Reads your text and finds each question + options
+
+  - paginateQuestions()
+      Splits questions into pages based on paper size
+
+  - PAPER_META
+      Stores size rules for A4, B5, and 8×8
+      (width, height, questions per page, font size)
+
+  - templatesFor()
+      Builds ready question templates
+
+  - renumberContent()
+      Fixes numbering order
+
+  - applyOptionFormat()
+      Changes option letter style
+
+  - structurePaste()
+      Cleans pasted Word/Excel text
+
+  - nextQuestionNumber()
+      Finds the next number to use
+
+
+----------------------------------------
+6) PAST PAPERS
+   File: src/pages/PastPapers.tsx
+----------------------------------------
+
+Purpose:
+  Store and reuse previous year exam papers.
+
+Features:
+  - List of past papers (exam name, year, subject)
+  - Status: Imported / In book / Draft
+  - Filters: All / Imported / In book / Draft
+  - Import paper button
+  - Convert to book
+      * Turns a past paper into chapter content
+  - Open button
+      * Opens paper in editor
+
+Why it helps:
+  No need to retype old exam papers from scratch.
+
+
+----------------------------------------
+7) QC REVIEW (Quality Control)
+   File: src/pages/QCReview.tsx
+----------------------------------------
+
+Purpose:
+  Find and fix mistakes before printing.
+
+Check categories:
+  - Numbering
+  - Headers & Footers
+  - Margins & Bleed
+  - Typography
+
+What each check can say:
+  - Pass     → OK
+  - Fail     → Must fix
+  - Warning  → Should review
+
+Features:
+  - Category filter tabs
+  - Fail / Warn / Pass counters
+  - Detail panel for selected issue
+  - Affected page numbers
+  - One-click fix button
+      * Example: auto-renumber, sync answer key, raise font size
+  - Open in editor
+  - Re-run all checks
+  - Side-by-side comparison (source vs layout) for gap errors
+
+Why it helps:
+  Catch missing questions, wrong answers, and layout problems early.
+
+
+----------------------------------------
+8) TEMPLATES
+   File: src/pages/Templates.tsx
+----------------------------------------
+
+Purpose:
+  Ready layouts so you do not build formats by hand.
+
+Template types include:
+  - MCQ Standard A–D
+  - MCQ Compact A–E
+  - True / False Series
+  - Match the Following
+  - Assertion–Reason
+  - Previous Year Paper
+  - Fill-in-the-Blank
+  - Course Book Chapter
+
+Features:
+  - See paper size for each template
+  - See how many books already use it
+  - Click a template to open the editor
+  - New template button
+
+Why it helps:
+  Same style across all books = less errors and less work.
+
+
+----------------------------------------
+9) INSIGHTS (Analytics)
+   File: src/pages/Analytics.tsx
+----------------------------------------
+
+Purpose:
+  See how much work and time you save.
+
+Features:
+  - Questions this week
+  - Hours saved (vs Word)
+  - Exports completed
+  - Average layout time
+  - Daily questions chart
+  - Top books with time saved
+
+Why it helps:
+  Managers and typists can see productivity clearly.
+
+
+----------------------------------------
+10) SETTINGS
+    File: src/pages/Settings.tsx
+----------------------------------------
+
+Purpose:
+  Set default rules for all books.
+
+Sections:
+
+  Publication defaults
+    - Default paper size
+    - Default font
+    - Default template
+    - Auto-save interval
+    - Option columns
+
+  Print & export
+    - Bleed
+    - Gutter
+    - Output quality
+    - ICC color profile
+    - Always batch 3 sizes (on/off)
+
+  QC & productivity
+    - Auto-run QC on save
+    - Suggest renumber on gaps
+    - Minimum font size alert
+    - Keyboard tip toasts
+    - Word paste auto-structure
+
+  Save settings button
+
+
+----------------------------------------
+11) COMMAND PALETTE
+    File: src/components/CommandPalette.tsx
+----------------------------------------
+
+Purpose:
+  Fast search box to jump anywhere without clicking menus.
+
+How to open:
+  Press Ctrl+K  (or Cmd+K on Mac)
+
+What you can do:
+  - Go to Dashboard / Books / Editor / QC / Templates / Papers / Settings
+  - Export / Print
+  - Insert MCQ
+  - Auto-renumber
+  - Paste import
+  - Fix numbering gaps
+
+Keys inside the palette:
+  - Type to search
+  - Arrow Up / Down to move
+  - Enter to select
+  - Esc to close
+
+
+----------------------------------------
+12) EXPORT / PRINT MODAL
+    File: src/components/ExportModal.tsx
+----------------------------------------
+
+Purpose:
+  Create print-ready files from one source.
+
+Paper formats:
+  - A4 Standard   (210 × 297 mm)
+  - B5 Academic   (176 × 250 mm)
+  - 8×8 Square    (203 × 203 mm)
+
+Output types:
+  - High-Quality PDF/X
+  - Press-Ready Package (crop + bleed)
+  - Digital distribution PDF
+
+Print settings (on/off switches):
+  - Bleed marks
+  - Crop marks
+  - Printer gutter
+  - Embed ICC profile
+  - Include answer key
+  - Batch all 3 sizes (A4 + B5 + 8×8 together)
+
+Flow:
+  1. Choose size
+  2. Choose output type
+  3. Turn settings on/off
+  4. Click Generate
+  5. Download package when ready
+
+Shortcut:
+  Ctrl+P opens this window.
+
+
+----------------------------------------
+13) APP SHELL (MAIN CONTROLLER)
+    File: src/App.tsx
+----------------------------------------
+
+Purpose:
+  Connects all screens together.
+
+It controls:
+  - Login state
+  - Which page is open
+  - Export modal open/close
+  - Command palette open/close
+  - Passing actions into the editor
+  - Global shortcuts (Ctrl+K, Ctrl+P)
+
+
+----------------------------------------
+14) GLOBAL STYLE / THEME
+    File: src/index.css
+----------------------------------------
+
+Purpose:
+  Makes the whole app look light, clean, and professional.
+
+Includes:
+  - Light background colors
+  - Teal accent color
+  - Fonts (Outfit for UI, Source Serif for book preview)
+  - Scrollbar style
+  - Soft animations (fade in, slide up)
+  - Paper grain look for preview pages
+
+
+----------------------------------------
+15) SHARED TYPES
+    File: src/types.ts
+----------------------------------------
+
+Purpose:
+  Common names used across pages.
+
+Defines page names like:
+  dashboard, projects, editor, qc, analytics,
+  templates, papers, settings
+
+
+----------------------------------------
+16) APP ENTRY POINT
+    File: src/main.tsx
+----------------------------------------
+
+Purpose:
+  Starts React and loads the main App.
+
+
+================================================================================
+PART 4 — KEYBOARD SHORTCUTS (REMEMBER THESE)
+================================================================================
+
+  Ctrl + K          Open command palette (quick jump)
+  Ctrl + P          Open export / print
+  Ctrl + Z          Undo
+  Ctrl + Y          Redo
+  Ctrl + 4          Insert MCQ with A B C D
+  Ctrl + 5          Insert MCQ with A–E
+  Ctrl + R          Auto-renumber questions
+  Ctrl + T          Insert True / False
+  Ctrl + F          Insert Fill blank
+  Ctrl + M          Insert Match list
+  Esc               Close popups / command palette
+
+
+================================================================================
+PART 5 — FEATURE LIST (ALL FEATURES IN ONE PLACE)
+================================================================================
+
+Login & security
+  [x] Login screen
+  [x] Demo sign-in
+
+Project management
+  [x] Dashboard overview
+  [x] Book / project view
+  [x] Chapter tree
+  [x] Section management
+  [x] Clone chapter
+  [x] Add chapter
+  [x] Status tags (Draft / Review / Print-Ready)
+
+Content entry
+  [x] Quick Editor
+  [x] Rich plain-text question typing
+  [x] Auto-save
+  [x] Undo / Redo
+  [x] Paste from Word / Excel
+  [x] Smart template injection
+  [x] Marker / bulletin insert
+
+Smart templates
+  [x] MCQ 4 options
+  [x] MCQ 5 options
+  [x] True / False
+  [x] Fill in the blank
+  [x] Match the following
+  [x] Assertion-Reason
+  [x] Template gallery page
+
+Layout engine
+  [x] Auto alignment (no manual drag)
+  [x] Live preview
+  [x] 1-column / 2-column options
+  [x] Paper size live scaling (A4 / B5 / 8×8)
+  [x] Auto pagination
+  [x] Overflow detection
+  [x] Auto-balance pages
+  [x] Dynamic headers & footers in preview
+
+Question bank tools
+  [x] Auto-number / renumber
+  [x] Option format conversion
+  [x] Next question number detection
+  [x] Answer mark [✓ A/B/C/D]
+
+Past papers
+  [x] Past paper library
+  [x] Import paper
+  [x] Convert paper to book
+  [x] Status filters
+
+Quality control
+  [x] Number sequence checks
+  [x] Answer key checks
+  [x] Header / footer checks
+  [x] Margin / bleed checks
+  [x] Typography checks
+  [x] One-click fixes
+  [x] Re-run all checks
+  [x] Jump to editor from QC
+
+Export & print
+  [x] A4 export
+  [x] B5 export
+  [x] 8×8 export
+  [x] PDF/X output option
+  [x] Press-ready package option
+  [x] Digital PDF option
+  [x] Bleed / crop / gutter toggles
+  [x] Answer key include option
+  [x] Batch all 3 sizes
+
+Productivity extras
+  [x] Command palette
+  [x] Time-saver shortcuts on dashboard
+  [x] Insights / time saved reports
+  [x] Settings defaults
+  [x] Collapsible sidebar
+  [x] Toast messages for actions
+
+
+================================================================================
+PART 6 — FOLDER MAP (FOR DEVELOPERS)
+================================================================================
+
+Complete Desktop Software/
+│
+├── index.html                 Main HTML page
+├── package.json               Project dependencies and scripts
+├── vite.config.ts             Build tool settings
+├── tsconfig.json              TypeScript settings
+├── .gitignore                 Files Git should ignore
+├── AGENTS.md / CLAUDE.md      AI/dev project notes
+│
+└── src/
+    ├── main.tsx               App start
+    ├── App.tsx                Main controller / router
+    ├── index.css              Global light theme styles
+    ├── types.ts               Shared page types
+    │
+    ├── lib/
+    │   └── editorEngine.ts    Layout + parse + renumber engine
+    │
+    ├── components/
+    │   ├── Sidebar.tsx        Left navigation
+    │   ├── CommandPalette.tsx Quick command search
+    │   └── ExportModal.tsx    Export / print popup
+    │
+    └── pages/
+        ├── Login.tsx          Login screen
+        ├── Dashboard.tsx      Home overview
+        ├── ProjectView.tsx    Books & chapters
+        ├── Editor.tsx         Quick question editor
+        ├── PastPapers.tsx     Previous year papers
+        ├── QCReview.tsx       Quality control
+        ├── Templates.tsx      Template gallery
+        ├── Analytics.tsx      Insights / reports
+        └── Settings.tsx       Preferences
+
+
+================================================================================
+PART 7 — SIMPLE DAY-TO-DAY USAGE
+================================================================================
+
+Typical day for a typist:
+
+  1. Sign in
+  2. Open Dashboard
+  3. Click "Start typing questions" or open Quick Editor
+  4. Choose paper size (A4 / B5 / 8×8)
+  5. Click a Block (example: MCQ A B C D)
+  6. Type the question text and options
+  7. Watch Live Preview on the right
+  8. Use Auto-number if numbers look wrong
+  9. Open QC Review and fix any flags
+ 10. Press Ctrl+P and export print files
+
+
+Typical day for a layout lead:
+
+  1. Check Dashboard QC flags
+  2. Open Books and review chapter status
+  3. Run QC Review and use one-click fixes
+  4. Confirm live preview on all 3 sizes
+  5. Export press-ready package
+
+
+================================================================================
+PART 8 — PAPER SIZES EXPLAINED SIMPLY
+================================================================================
+
+  A4
+    Common exam book size.
+    Tall rectangle.
+    Fits more content per page.
+
+  B5
+    Slightly smaller academic size.
+    Good for compact books.
+
+  8×8
+    Square workbook size.
+    Less vertical space.
+    Content may need more pages.
+
+
+Important:
+  You type once.
+  Figma can scale the same content to all three sizes.
+
+
+================================================================================
+PART 9 — WORDS YOU MAY SEE (SIMPLE MEANINGS)
+================================================================================
+
+  MCQ            Multiple Choice Question
+  QC             Quality Control (error checking)
+  Template       Ready format you can reuse
+  Overflow       Text does not fit on the page
+  Bleed          Extra print edge outside the page cut
+  Gutter         Extra inner margin for book binding
+  Pagination     Splitting content into pages
+  Press-ready    File ready for printing press
+  PDF/X          Special PDF used by professional printers
+  Auto-balance   Software moves content so pages fit better
+
+
+================================================================================
+END OF GUIDE
+================================================================================
+
+Software name : Figma — Book & MCQ Suite
+Guide language: Simple English
+Purpose       : Explain every module and every feature clearly
+
+If you need help while using the software:
+  - Press Ctrl+K and search for what you need
+  - Or open Shortcuts inside the Quick Editor
+
+================================================================================

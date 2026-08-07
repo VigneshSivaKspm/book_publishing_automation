@@ -1,0 +1,249 @@
+================================================================================
+  Figma — CLIENT QUOTATION & SCOPE DOCUMENT
+  Automated Book & Question Bank Publishing Suite
+================================================================================
+
+Product name:     Figma
+Document type:    Project overview, workflow & scope (aligned to current build)
+Audience:         Clients / stakeholders
+Status:           Reflects the live simplified production editor (not legacy
+                  multi-module mockups)
+
+
+--------------------------------------------------------------------------------
+PART 1 — PROJECT OVERVIEW
+--------------------------------------------------------------------------------
+
+Traditional tools (e.g. Microsoft Word) force typists and layout staff into
+manual alignment, fragile formatting, and repeated fixes whenever text
+overflows or page size changes.
+
+Figma is a browser-based publishing workspace built for educational
+content: MCQ banks, scanned / pasted question papers, and structured course
+manuals. Users type or scan content; the suite automates layout, headers,
+footers, page geometry, formula rendering, and print-ready export for three
+fixed sizes only: A4, B5, and 8×8.
+
+How teams work today (current product)
+  1. Sign in
+  2. Open Documents → New book (name + page size)
+  3. Edit in a Word-style full-page editor (ribbon + paper canvas)
+  4. Use AI Scan / Auto Align / Compile as needed
+  5. Print / PDF export
+
+Key business benefits
+  • Time savings — less hand alignment, renumbering, and size rework
+  • Print readiness — A4, B5, and 8×8 from one source document
+  • Consistency — shared header/footer styles, topic numbering, MCQ structure
+  • Content focus — typists work on text; layout tools handle presentation
+
+
+--------------------------------------------------------------------------------
+PART 2 — END-TO-END WORKFLOW (CURRENT)
+--------------------------------------------------------------------------------
+
+  [ 1. Create book & ingest content ]
+                 ↓
+  [ 2. Edit, structure & auto-layout ]
+                 ↓
+  [ 3. Preview, align & compile ]
+                 ↓
+  [ 4. Multi-size print / PDF export ]
+
+
+1) Create book & ingest content
+  • New book wizard: title + paper size (A4 / B5 / 8×8)
+  • Documents library: open recent books (saved in browser storage)
+  • Content entry in the editor:
+      – Type body text, topics, MCQs, formulas
+      – Paste a question paper (text)
+      – AI Scan Image — OCR photo/scan → questions, choices, answers
+      – Insert image for figures/diagrams
+  • Secure sign-in gate before the workspace
+
+2) Edit, structure & auto-layout
+  • Word-like ribbon: Home · Insert · Layout · Fonts · AI & Export
+  • Quick bar (always visible): Undo/Redo, Topic, 1.1, MCQ, Math, + Page,
+    size switch, font picker, large AI Scan, Auto Align, Compile Book
+  • Course structure: Topic N + subheadings 1.1 / 1.2 / 1.3 (topic tree)
+  • MCQ tools: blank MCQ, auto-generated MCQs with answers, answer-key page
+  • Math: KaTeX formulas ($…$ / $$…$$) with dedicated math fonts
+  • Fonts: English, Tamil, Math presets + import/export of custom fonts & packs
+  • Headers & footers: Classic / Academic / Modern / Minimal; editable text;
+    page numbers; different first page
+  • Auto Align — cleans page and structures detected MCQs
+  • Compile Book — whole-book clean-up + image placement tips
+
+3) Preview, align & compile
+  • Live paper canvas scaled to the selected print size
+  • Page list for multi-page books (add / navigate / delete pages)
+  • Placement tips after compile or image insert
+  • Undo / Redo (Ctrl+Z / Ctrl+Y) across document changes
+
+4) Multi-size export & print
+  • Switch A4 ↔ B5 ↔ 8×8 in the editor; canvas and export follow the size
+  • Headers, footers, and page numbers recalculate with the document
+  • Print / PDF — opens a print-ready view (browser Print → Save as PDF)
+  • Shortcut: Ctrl+P / Ctrl+E from the editor
+
+
+--------------------------------------------------------------------------------
+PART 3 — PROJECT OBJECTIVES
+--------------------------------------------------------------------------------
+
+  • Reduce manual document formatting for exam and course books
+  • Automate layout for topics, MCQs, headers/footers, and page geometry
+  • Cut production time from typing to print-ready PDF
+  • Keep styling consistent across a book and across size variants
+  • Support A4, B5, and 8×8 from a single source
+  • Speed up paper intake via paste + AI image OCR for questions/answers
+
+
+--------------------------------------------------------------------------------
+PART 4 — SCOPE OF WORK (DELIVERED IN CURRENT BUILD)
+--------------------------------------------------------------------------------
+
+IN SCOPE — available now
+------------------------
+
+A. Platform shell
+  • Secure login screen
+  • Documents home (library + New book)
+  • Settings (default page size preference)
+  • Full-screen book editor (no cluttered module sidebars)
+
+B. Book creation & management
+  • Create book by name and size
+  • Multi-page books with page list
+  • Auto-save to local browser storage
+  • Re-open recent documents
+
+C. Content editor (Word-style)
+  • Title / Heading / Subheading / Normal / List
+  • Topic tree (1 · 1.1 · 1.2 · 1.3)
+  • MCQ blocks and Auto MCQs
+  • Math / formula blocks
+  • Image insert
+  • Alignment (left / center / right / justify)
+  • Undo / Redo
+  • Zoom and page navigation
+
+D. Templates & automation (editor-native)
+  • MCQ option structure (A–D / answer marks)
+  • Auto MCQ generation with answer marks
+  • Answer key page generation
+  • Paste question paper → structured MCQs
+  • AI Scan Image (OCR) → detect questions, choices, answers → auto-align
+  • Auto Align page / Compile book
+
+E. Layout & typography
+  • A4 · B5 · 8×8 only (maximum of these three sizes)
+  • Dynamic header & footer styles + editable fields
+  • Page numbering formats
+  • English / Tamil / Math font presets
+  • Import fonts (.ttf / .otf / .woff / .woff2), multi-file
+  • Import / export font packs and font settings
+  • Per-font export and remove from personal library
+  • KaTeX high-precision math rendering
+
+F. Quality & preview
+  • Live print-size canvas preview
+  • Compile + placement suggestions
+  • Answer marking and answer-key compile
+
+G. Export
+  • Print-ready HTML/PDF path via browser print dialog
+  • Size-aware pages, headers, footers, fonts, and math in export
+
+
+OUT OF SCOPE / NOT IN CURRENT SIMPLIFIED BUILD
+----------------------------------------------
+(These appeared in earlier expansive quotations or demos; they are not
+primary screens in the current product.)
+
+  • Separate “Previous Year Papers” module / paper archive CRM
+  • Standalone QC Review workspace with fail/warn checklists
+  • Analytics / Insights dashboard
+  • Template gallery as a separate browsing module
+  • Multi-user real-time collaborative editing / cloud sync
+  • Press-house PDF/X packages with crop marks, bleed, ICC (UI demo only
+    if present elsewhere — current export is browser Print / Save as PDF)
+  • Desktop native installers (product is web-based)
+
+Future phases can reintroduce selected items above if required by contract.
+
+
+--------------------------------------------------------------------------------
+PART 5 — CLIENT REQUIREMENT TRACEABILITY
+--------------------------------------------------------------------------------
+
+1. General formatting & layout
+   ✓ Sizes: A4, B5, 8×8 (only these three)
+   ✓ Layout aligns to the active size on the canvas and in export
+   ✓ Matching header/footer designs by style + editable content
+
+2. Mathematical content & formulas
+   ✓ Clean formula entry and KaTeX rendering
+   ✓ Dedicated math font options
+   ✓ Formulas preserved in print preview / PDF path
+
+3. Course manual / book generation
+   ✓ Topics and subheadings (Topic N, 1.1, 1.2, 1.3)
+   ✓ Smart placement suggestions on compile / image insert
+   ✓ Compile Book for structured, cleaned whole-book output
+
+4. AI integration (question paper & answer key)
+   ✓ Upload/scan or paste paper; formatting retained into structured blocks
+   ✓ Automated answer detection / generation and answer-key page
+   ✓ Auto Align for clean final layout of questions and options
+
+
+--------------------------------------------------------------------------------
+PART 6 — CORE FEATURE CHECKLIST (CURRENT PRODUCT)
+--------------------------------------------------------------------------------
+
+  [x] Secure login
+  [x] Documents library / project list
+  [x] New book (name + size)
+  [x] Full-page Word-style editor
+  [x] Chapter/topic & section headings
+  [x] Question / MCQ entry
+  [x] Smart MCQ & topic inserts (shortcuts via ribbon)
+  [x] Automatic layout assist (Auto Align / Compile)
+  [x] Typography & font management (EN / TA / Math + custom)
+  [x] Font import & export (files, packs, settings)
+  [x] Dynamic headers & footers
+  [x] Multi-page navigation & pagination assist
+  [x] Real-time paper preview
+  [x] Print / PDF export
+  [x] A4 · B5 · 8×8 multi-size from one source
+  [x] AI image OCR for question papers
+  [x] Answer key generation
+  [x] Math formula support
+  [x] Responsive web application
+
+
+--------------------------------------------------------------------------------
+PART 7 — TECHNICAL SUMMARY (FOR STAKEHOLDERS)
+--------------------------------------------------------------------------------
+
+  • Stack: React + Vite + Tailwind (browser app)
+  • Math: KaTeX
+  • OCR: Tesseract.js (client-side image → text / MCQ structure)
+  • Persistence: Local browser storage for books and custom fonts
+  • Export: Print-optimized document window → system Print / Save as PDF
+
+
+--------------------------------------------------------------------------------
+PART 8 — ENGAGEMENT NOTES
+--------------------------------------------------------------------------------
+
+This quotation describes the software as delivered in the current simplified
+production UI: a focused Documents → Editor → Print workflow.
+
+It intentionally does not promise legacy multi-module screens (Insights,
+standalone QC suite, Past Papers CRM, etc.). Scope additions should be listed
+as change requests / Phase 2 items with separate estimate.
+
+Prepared for client review · Figma Automated Publishing Suite
+================================================================================
