@@ -468,3 +468,51 @@ export function emptyMcqTemplate(num: number): ContentBlock {
     answer: undefined,
   })
 }
+
+/** Strip inline answer tags (e.g. [✓ A], [✓ (A)], Answer: (A)) from text for clean canvas rendering. */
+export function stripInlineAnswerTags(text: string): string {
+  if (!text) return ''
+  return text
+    .replace(/\[\s*[✓✔]?\s*\(?[A-Ea-e1-4?]?\)?\s*\]/gi, '')
+    .replace(/\s*Answer\s*[:\-]\s*\(?[A-Ea-e1-4]\)?\s*$/gi, '')
+    .replace(/\s*\(?[✓✔]\s*[A-Ea-e1-4]?\)?\s*$/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+}
+
+export const sanitizeQuestionText = stripInlineAnswerTags
+
+/** Clean inline answer tags from an MCQ block while preserving its answer state. */
+export function cleanMcqBlock(block: ContentBlock): ContentBlock {
+  if (block.type !== 'mcq') return block
+  const extractedAns = block.answer || block.text.match(/\[✓\s*([A-E])\]/i)?.[1] || 'A'
+  const cleanText = stripInlineAnswerTags(block.text)
+  return {
+    ...block,
+    answer: extractedAns.toUpperCase(),
+    text: cleanText,
+  }
+}
+
+export interface QuestionItemModel {
+  id: string
+  questionText: string
+  options: string[]
+  correctAnswer: string
+}
+
+/** Parse an MCQ block into a decoupled Question Item model with clean text and isolated correctAnswer. */
+export function splitMcqBlock(block: ContentBlock): QuestionItemModel {
+  const rawLines = block.text.split('\n')
+  const cleanLines = rawLines.map((l) => stripInlineAnswerTags(l)).filter(Boolean)
+  const questionText = cleanLines[0] || ''
+  const options = cleanLines.slice(1)
+  const extractedAns = block.answer || block.text.match(/\[✓\s*([A-E])\]/i)?.[1] || 'A'
+  return {
+    id: block.id,
+    questionText,
+    options,
+    correctAnswer: extractedAns.toUpperCase(),
+  }
+}
+

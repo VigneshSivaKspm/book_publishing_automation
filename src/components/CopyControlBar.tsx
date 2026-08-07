@@ -80,15 +80,18 @@ export default function CopyControlBar({ book, activePage, activePageRef, bodyCo
         clone
           .querySelectorAll('.floating-toolbar, .formatting-bar, .no-copy, .select-none, button, select')
           .forEach((el) => el.remove())
-        bodyText = (clone.innerText || clone.textContent || '').trim()
+        bodyText = (clone.innerText || clone.textContent || '')
+          .replace(/\[\s*[✓✔]?\s*\(?[A-Ea-e1-4?]?\)?\s*\]/gi, '')
+          .replace(/\s*Answer\s*[:\-]\s*\(?[A-Ea-e1-4]\)?/gi, '')
+          .trim()
       }
       if (!bodyText) {
-        bodyText = extractBodyContentText(book.pages)
+        bodyText = extractBodyContentText(book.pages, { cleanAnswers: true })
       }
       await executeCopy('body-all', bodyText, 'Body Content')
     } catch (err) {
       console.error('Failed to copy body content: ', err)
-      await executeCopy('body-all', extractBodyContentText(book.pages), 'Body Content')
+      await executeCopy('body-all', extractBodyContentText(book.pages, { cleanAnswers: true }), 'Body Content')
     }
   }
 

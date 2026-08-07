@@ -76,7 +76,7 @@ export interface HeaderFooterSettings {
   watermarkScale: number // 0.4 to 1.5
 
   // Page number tab style
-  pageNumberStyle: 'production-tab' | 'simple' | 'dashed'
+  pageNumberStyle: 'production-tab' | 'bracket' | 'simple' | 'dashed'
 
   // Auto Answer Key Settings
   autoGenerateAnswerKey: boolean
@@ -136,7 +136,7 @@ export function createNewBook(
     id: uid('book'),
     title: name,
     subtitle: opts?.subtitle ?? '',
-    author: opts?.author ?? 'Karthikeyan',
+    author: opts?.author ?? 'Karthikeyan Analysis Study Circle',
     paperSize: opts?.paperSize ?? 'A4',
     bookMode: opts?.bookMode ?? 'qa',
     createdAt: now,
@@ -159,15 +159,15 @@ export function createNewBook(
       showColumnDivider: true,
       chapterLabel: 'Chapter',
       chapterNumber: '02',
-      chapterTitle: name || 'Integral Calculus',
+      chapterTitle: name || 'Micro Economics',
       middleBoxText: 'Karthikeyan Analysis Study Circle',
-      middleRightText: name || 'Integral Calculus',
+      middleRightText: 'Economics',
       alternatingHeaders: true,
       watermarkEnabled: true,
       watermarkText: 'KARTHIKEYAN ANALYSIS STUDY CIRCLE',
       watermarkOpacity: 0.12,
       watermarkScale: 0.85,
-      pageNumberStyle: 'production-tab',
+      pageNumberStyle: 'bracket',
       autoGenerateAnswerKey: true,
     },
     pages: [
@@ -187,5 +187,6 @@ export function formatPageNumber(pageIndex: number, settings: HeaderFooterSettin
   const n = settings.startPageNumber + pageIndex
   if (settings.pageNumberFormat === 'dashed') return `— ${n} —`
   if (settings.pageNumberFormat === 'chapter') return `Page ${n}`
+  if (settings.pageNumberStyle === 'bracket') return `{ ${n} }`
   return String(n)
 }

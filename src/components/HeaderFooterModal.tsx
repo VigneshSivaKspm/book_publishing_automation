@@ -326,13 +326,12 @@ export default function HeaderFooterModal({
               <div>
                 <span className="text-[11px] text-slate-500 font-semibold block mb-1">Page Number Style</span>
                 <select
-                  value={settings.pageNumberFormat || 'numeric'}
-                  onChange={(e) => update({ pageNumberFormat: e.target.value as any })}
+                  value={settings.pageNumberStyle || 'bracket'}
+                  onChange={(e) => update({ pageNumberStyle: e.target.value as any })}
                   className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-[12px] bg-white outline-none focus:border-teal-600"
                 >
-                  <option value="numeric">Black Production Tab Box (e.g. 1)</option>
-                  <option value="dashed">Dashed Format (e.g. — 1 —)</option>
-                  <option value="chapter">Chapter Label Format (e.g. Page 1)</option>
+                  <option value="bracket">Centered Bracketed Line (e.g. &#123; 1 &#125;) — Textbook Sample Style</option>
+                  <option value="production-tab">Black Corner Tab Box (e.g. 1)</option>
                 </select>
               </div>
             </div>

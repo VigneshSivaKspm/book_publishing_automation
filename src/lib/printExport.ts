@@ -17,17 +17,18 @@ function renderWatermarkSvg(text: string): string {
     <circle cx="200" cy="200" r="180" fill="none" stroke="#64748B" stroke-width="2.5" stroke-dasharray="6,4"/>
     <circle cx="200" cy="200" r="162" fill="none" stroke="#64748B" stroke-width="1.5"/>
     <path id="circlePath" d="M 50, 200 A 150,150 0 1,1 350,200 A 150,150 0 1,1 50,200" fill="none"/>
-    <text font-size="14" font-weight="700" fill="#475569" letter-spacing="3">
+    <text font-size="13" font-weight="700" fill="#475569" letter-spacing="2.5">
       <textPath href="#circlePath" startOffset="50%" text-anchor="middle">${clean}</textPath>
     </text>
-    <g transform="translate(130, 110) scale(0.7)">
+    <g transform="translate(130, 105) scale(0.7)">
       <path d="M50,20 L80,100 L20,100 Z" fill="none" stroke="#475569" stroke-width="3"/>
       <path d="M100,20 L130,100 L70,100 Z" fill="none" stroke="#475569" stroke-width="3"/>
       <circle cx="100" cy="110" r="28" fill="none" stroke="#475569" stroke-width="3"/>
       <path d="M60,130 Q100,160 140,130" fill="none" stroke="#475569" stroke-width="3"/>
     </g>
-    <text x="200" y="275" font-size="16" font-weight="800" fill="#334155" text-anchor="middle" letter-spacing="2">STUDY CIRCLE</text>
-    <text x="200" y="295" font-size="10" font-weight="600" fill="#64748B" text-anchor="middle">SINCE 2020</text>
+    <text x="200" y="255" font-size="11" font-weight="700" fill="#475569" text-anchor="middle" font-family="'Noto Sans Tamil', sans-serif">உள்ளுவதெல்லாம் உயர்வுள்ளல்</text>
+    <text x="200" y="278" font-size="15" font-weight="800" fill="#334155" text-anchor="middle" letter-spacing="2">STUDY CIRCLE</text>
+    <text x="200" y="298" font-size="10" font-weight="600" fill="#64748B" text-anchor="middle">SINCE 2020</text>
   </svg>`
 }
 
@@ -41,14 +42,46 @@ function blockHtml(
   fontSize?: number,
 ): string {
   const a = align === 'justify' ? 'justify' : align || 'left'
-  const sizeStyle = fontSize ? `font-size:${fontSize}pt;` : ''
+  const effSize = fontSize || 13.5
+  const lineHeightPt = (effSize * 1.2).toFixed(1)
+  const sizeStyle = `font-size:${effSize}pt;line-height:${lineHeightPt}pt;`
+
   if (type === 'image' && imageUrl) {
     return `<figure style="text-align:${a};margin:10pt 0"><img src="${imageUrl}" alt="${escapeHtml(imageAlt || '')}" style="max-width:100%;max-height:160mm;object-fit:contain"/><figcaption style="font-size:9pt;color:#64748B;margin-top:4pt">${escapeHtml(imageAlt || '')}</figcaption></figure>`
   }
   const content = renderTextWithMath(text)
-  if (type === 'heading1') return `<h1 style="text-align:${a};font-size:${fontSize || 18}pt;margin:12pt 0 6pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h1>`
-  if (type === 'heading2') return `<h2 style="text-align:${a};font-size:${fontSize || 14}pt;margin:10pt 0 4pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h2>`
-  if (type === 'heading3') return `<h3 style="text-align:${a};font-size:${fontSize || 12}pt;margin:8pt 0 4pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h3>`
+  if (type === 'heading1') return `<h1 style="text-align:${a};font-size:${fontSize || 18}pt;line-height:${((fontSize || 18) * 1.2).toFixed(1)}pt;margin:12pt 0 6pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h1>`
+  
+  if (type === 'heading2') {
+    const secMatch = text.match(/^\s*(\d+(\.\d+)*)\.?\s+(.+)$/)
+    if (secMatch) {
+      const badge = secMatch[1]
+      const title = renderTextWithMath(secMatch[3])
+      return `<div class="sec-hdr-wrap" style="page-break-inside:avoid;break-inside:avoid;margin:12pt 0 6pt;">
+        <div class="sec-hdr-box" style="display:flex;align-items:stretch;">
+          <div class="sec-badge-num" style="background:#000000;color:#FFFFFF;font-weight:800;font-size:11pt;padding:4px 10px;border-radius:1px;display:flex;align-items:center;font-family:system-ui,sans-serif;flex-shrink:0">${badge}</div>
+          <div class="sec-title-bg" style="background:#E5E7EB;color:#000000;font-weight:700;font-size:11.5pt;padding:4px 12px;flex:1;display:flex;align-items:center;font-family:'Source Serif 4',Georgia,serif;border-radius:1px">${title}</div>
+        </div>
+      </div>`
+    }
+    return `<h2 style="text-align:${a};font-size:${fontSize || 14}pt;line-height:${((fontSize || 14) * 1.2).toFixed(1)}pt;margin:10pt 0 4pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h2>`
+  }
+
+  if (type === 'heading3') {
+    const secMatch = text.match(/^\s*(\d+(\.\d+)+)\.?\s+(.+)$/)
+    if (secMatch) {
+      const badge = secMatch[1]
+      const title = renderTextWithMath(secMatch[3])
+      return `<div class="subsec-hdr-wrap" style="page-break-inside:avoid;break-inside:avoid;margin:9pt 0 4pt;">
+        <div class="subsec-hdr-box" style="display:flex;align-items:center;border-bottom:1.5px solid #000000;padding-bottom:2px;">
+          <span class="subsec-badge" style="font-weight:800;font-size:10.5pt;color:#000000;margin-right:6px;font-family:system-ui,sans-serif">${badge}</span>
+          <span class="subsec-title" style="font-weight:700;font-size:10.5pt;color:#000000;font-family:'Source Serif 4',Georgia,serif">${title}</span>
+        </div>
+      </div>`
+    }
+    return `<h3 style="text-align:${a};font-size:${fontSize || 12}pt;line-height:${((fontSize || 12) * 1.2).toFixed(1)}pt;margin:8pt 0 4pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h3>`
+  }
+
   if (type === 'list') return `<p style="text-align:${a};margin:4pt 0 4pt 10pt;${sizeStyle}">• ${content}</p>`
   if (type === 'math') return `<div class="math-font" style="text-align:center;margin:8pt 0;${sizeStyle}">${content}</div>`
   if (type === 'spacer') return `<div style="height:10pt"></div>`
@@ -56,22 +89,21 @@ function blockHtml(
     const lines = text.split('\n')
     const body = lines
       .map((line, i) => {
-        let cleanLine = line
-        if (isQuestionsOnly) {
-          cleanLine = line.replace(/\[✓\s*[A-E]?\]/gi, '').trim()
-        }
+        const cleanLine = line
+          .replace(/\[\s*[✓✔]?\s*\(?[A-Ea-e1-4?]?\)?\s*\]/gi, '')
+          .replace(/\s*Answer\s*[:\-]\s*\(?[A-Ea-e1-4]\)?\s*$/gi, '')
+          .trim()
         const html = renderTextWithMath(cleanLine)
         if (i === 0) {
           // Question stem
-          return `<div class="q-stem" style="font-weight:700;margin:6pt 0 4pt;line-height:1.45;color:#0F172A">${html}</div>`
+          return `<div class="q-stem" style="font-weight:700;margin:6pt 0 4pt;line-height:${lineHeightPt}pt;color:#0F172A">${html}</div>`
         }
-        const isAns = !isQuestionsOnly && /\[✓/.test(line)
-        return `<div class="q-opt" style="margin:2.5pt 0 2.5pt 12pt;color:${isAns ? '#047857' : '#0F172A'};font-weight:${isAns ? '700' : '400'};line-height:1.4">${html}</div>`
+        return `<div class="q-opt" style="margin:2.5pt 0 2.5pt 12pt;color:#0F172A;font-weight:400;line-height:${lineHeightPt}pt">${html}</div>`
       })
       .join('')
     return `<div class="mcq-block" style="margin:12pt 0 14pt;padding-bottom:6pt;border-bottom:1px dashed #CBD5E1;page-break-inside:avoid;break-inside:avoid;${sizeStyle}">${body}</div>`
   }
-  return `<p style="text-align:${a};margin:5pt 0;line-height:1.5;${sizeStyle}">${content}</p>`
+  return `<p style="text-align:${a};margin:5pt 0;${sizeStyle}">${content}</p>`
 }
 
 export function exportBookPrintable(book: BookDocument): void {
@@ -137,7 +169,13 @@ export function exportBookPrintable(book: BookDocument): void {
       const pageTabHtml = `<div class="page-tab-box">${pageNo}</div>`
 
       let footerHtml = ''
-      if (isEven) {
+      if (hf.pageNumberStyle === 'bracket') {
+        footerHtml = `<div class="ftr-bracket-row" style="display:flex;align-items:center;width:100%;margin-top:auto;padding-top:10px;">
+          <div style="flex:1;height:1.5px;background:#000000;"></div>
+          <div style="padding:0 14px;font-weight:800;font-size:11.5pt;font-family:system-ui,sans-serif;color:#000000;letter-spacing:1px">{ ${idx + 1} }</div>
+          <div style="flex:1;height:1.5px;background:#000000;"></div>
+        </div>`
+      } else if (isEven) {
         // Page tab on Left for even page (Screenshot 2)
         footerHtml = `<div class="ftr-rule"></div>
         <div class="ftr-content ftr-left-tab">
@@ -159,9 +197,9 @@ export function exportBookPrintable(book: BookDocument): void {
         const opacity = hf.watermarkOpacity ?? 0.12
         const scale = hf.watermarkScale ?? 0.85
         if (hf.watermarkImage) {
-          watermarkHtml = `<div class="watermark-layer" style="opacity:${opacity};transform:translate(-50%,-50%) scale(${scale})"><img src="${hf.watermarkImage}" alt="watermark"/></div>`
+          watermarkHtml = `<div class="watermark-layer" style="opacity:${opacity};"><div class="watermark-inner" style="transform:scale(${scale});"><img src="${hf.watermarkImage}" alt="watermark"/></div></div>`
         } else {
-          watermarkHtml = `<div class="watermark-layer" style="opacity:${opacity};transform:translate(-50%,-50%) scale(${scale})">${renderWatermarkSvg(hf.watermarkText)}</div>`
+          watermarkHtml = `<div class="watermark-layer" style="opacity:${opacity};"><div class="watermark-inner" style="transform:scale(${scale});">${renderWatermarkSvg(hf.watermarkText)}</div></div>`
         }
       }
 
@@ -222,8 +260,8 @@ export function exportBookPrintable(book: BookDocument): void {
       const opacity = hf.watermarkOpacity ?? 0.12
       const scale = hf.watermarkScale ?? 0.85
       watermarkHtml = hf.watermarkImage
-        ? `<div class="watermark-layer" style="opacity:${opacity};transform:translate(-50%,-50%) scale(${scale})"><img src="${hf.watermarkImage}" alt="watermark"/></div>`
-        : `<div class="watermark-layer" style="opacity:${opacity};transform:translate(-50%,-50%) scale(${scale})">${renderWatermarkSvg(hf.watermarkText)}</div>`
+        ? `<div class="watermark-layer" style="opacity:${opacity};"><div class="watermark-inner" style="transform:scale(${scale});"><img src="${hf.watermarkImage}" alt="watermark"/></div></div>`
+        : `<div class="watermark-layer" style="opacity:${opacity};"><div class="watermark-inner" style="transform:scale(${scale});">${renderWatermarkSvg(hf.watermarkText)}</div></div>`
     }
 
     answerKeyPageHtml = `\n<section class="page">
@@ -275,14 +313,26 @@ export function exportBookPrintable(book: BookDocument): void {
   /* Watermark background */
   .watermark-layer {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 380px;
-    height: 380px;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     pointer-events: none;
     z-index: 0;
+    overflow: hidden;
   }
-  .watermark-layer img { width: 100%; height: 100%; object-fit: contain; }
+  .watermark-inner {
+    width: 380px;
+    height: 380px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center center;
+  }
+  .watermark-inner img { max-width: 100%; max-height: 100%; object-fit: contain; margin: auto; }
 
   /* First Page Header (Screenshot 1) */
   .hdr-first {
@@ -375,6 +425,10 @@ export function exportBookPrintable(book: BookDocument): void {
     z-index: 2;
     font-size: 10.5pt;
     color: #000000;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: pre-wrap;
+    max-width: 100%;
   }
   .body.cols-2 {
     column-count: 2;

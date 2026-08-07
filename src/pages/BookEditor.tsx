@@ -10,7 +10,7 @@ import {
 import type { BookDocument, BookPage, ContentBlock, PaperSize } from '../types'
 import { PAPER_DIMENSIONS, createEmptyPage, formatPageNumber, uid } from '../types'
 import { autoCorrectBook, autoCorrectPage, estimateBookStats, reflowBookOverflow } from '../lib/bookAi'
-import { callGroqDocText, ocrImageToBlocks, readFileAsDataUrl } from '../lib/ocr'
+import { callGroqDocText, ocrImageToBlocks, parsePdfFile, parseMultiPageDocument, readFileAsDataUrl } from '../lib/ocr'
 import { exportBookPrintable } from '../lib/printExport'
 import { loadKatex, renderTextWithMath } from '../lib/mathEngine'
 import HeaderFooterModal from '../components/HeaderFooterModal'
@@ -22,6 +22,7 @@ import {
   generateMcqBank,
   nextMcqNumber,
   structureExamText,
+  stripInlineAnswerTags,
 } from '../lib/mcqEngine'
 import { FONT_PRESETS, getPreset, hydrateCustomFonts, importFontFile, importFontPack, importFontSettingsFile, exportFontFile, exportFontPack, exportFontSettings, listCustomFonts, removeCustomFont, resolveBodyStack, type CustomFontRecord } from '../lib/fonts'
 import 'katex/dist/katex.min.css'
@@ -66,8 +67,21 @@ function normalizeBook(b: BookDocument): BookDocument {
     autoGenerateAnswerKey: true,
   }
 
+  const cleanedPages = b.pages.map((p) => ({
+    ...p,
+    blocks: p.blocks.map((blk) => {
+      if (blk.type === 'mcq') {
+        const extractedAns = blk.answer || blk.text.match(/\[✓\s*([A-E])\]/i)?.[1] || 'A'
+        const cleanText = stripInlineAnswerTags(blk.text)
+        return { ...blk, answer: extractedAns.toUpperCase(), text: cleanText }
+      }
+      return blk
+    }),
+  }))
+
   return {
     ...b,
+    pages: cleanedPages,
     fontId: b.fontId || 'english-serif',
     mathFontId: b.mathFontId || 'math-stix',
     headerFooter: {
@@ -148,6 +162,151 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
   const [tips, setTips] = useState<string[]>([])
   const [showHfModal, setShowHfModal] = useState(false)
   const [isAnswerKeySelected, setIsAnswerKeySelected] = useState(false)
+  const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(null)
+  const savedSelectionBlocksRef = useRef<string[]>([])
+  const isDraggingRef = useRef(false)
+  const dragStartRef = useRef<{ startX: number; startY: number; initialX: number; initialY: number }>({
+    startX: 0,
+    startY: 0,
+    initialX: 0,
+    initialY: 0,
+  })
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection()
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return
+      const canvasEl = document.getElementById('active-page-canvas') || document.querySelector('.page-canvas.active')
+      if (!canvasEl) return
+
+      const range = selection.getRangeAt(0)
+      const blockEls = canvasEl.querySelectorAll('[data-block-id]')
+      const ids: string[] = []
+
+      blockEls.forEach((el) => {
+        const id = el.getAttribute('data-block-id')
+        if (id) {
+          try {
+            if (selection.containsNode(el, true) || (range.intersectsNode && range.intersectsNode(el))) {
+              ids.push(id)
+            }
+          } catch {
+            /* ignore fallback */
+          }
+        }
+      })
+
+      if (ids.length > 0) {
+        savedSelectionBlocksRef.current = ids
+      } else if (selection.toString().trim().length > 15) {
+        const allCanvasBlockIds = Array.from(blockEls)
+          .map((el) => el.getAttribute('data-block-id'))
+          .filter(Boolean) as string[]
+        if (allCanvasBlockIds.length > 0) {
+          savedSelectionBlocksRef.current = allCanvasBlockIds
+        }
+      }
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+    }
+  }, [activePageId])
+
+  useEffect(() => {
+    const handleCopy = (e: ClipboardEvent) => {
+      const activeEl = document.activeElement
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        const activeTa = activeEl as HTMLTextAreaElement | HTMLInputElement
+        if (activeTa.selectionStart !== null && activeTa.selectionEnd !== null) {
+          const selectedText = activeTa.value.substring(activeTa.selectionStart, activeTa.selectionEnd)
+          if (selectedText) {
+            const cleanText = stripInlineAnswerTags(selectedText)
+            if (e.clipboardData) {
+              e.clipboardData.setData('text/plain', cleanText)
+              e.preventDefault()
+            }
+            return
+          }
+        }
+      }
+
+      const selection = window.getSelection()
+      if (!selection || selection.isCollapsed) return
+
+      const canvasEl = document.getElementById('active-page-canvas') || document.querySelector('.page-canvas.active')
+      if (!canvasEl) return
+
+      try {
+        const range = selection.getRangeAt(0)
+        const clonedFrag = range.cloneContents()
+        const tempDiv = document.createElement('div')
+        tempDiv.appendChild(clonedFrag)
+
+        const removeSelectors = [
+          '.floating-toolbar',
+          '.formatting-bar',
+          '.no-copy',
+          '.select-none',
+          'button',
+          'select',
+          'input',
+          'textarea',
+          '[data-no-copy]',
+          '.document-header',
+          '.document-footer',
+        ]
+        tempDiv.querySelectorAll(removeSelectors.join(',')).forEach((el) => el.remove())
+
+        let cleanText = tempDiv.innerText || tempDiv.textContent || ''
+        cleanText = stripInlineAnswerTags(cleanText)
+
+        if (cleanText && e.clipboardData) {
+          e.clipboardData.setData('text/plain', cleanText)
+          e.preventDefault()
+        }
+      } catch {
+        /* fallback to default copy */
+      }
+    }
+
+    document.addEventListener('copy', handleCopy)
+    return () => {
+      document.removeEventListener('copy', handleCopy)
+    }
+  }, [])
+
+  const handleToolbarDragStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    isDraggingRef.current = true
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialX: toolbarPos?.x || 0,
+      initialY: toolbarPos?.y || 0,
+    }
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingRef.current) return
+      const deltaX = moveEvent.clientX - dragStartRef.current.startX
+      const deltaY = moveEvent.clientY - dragStartRef.current.startY
+      setToolbarPos({
+        x: dragStartRef.current.initialX + deltaX,
+        y: dragStartRef.current.initialY + deltaY,
+      })
+    }
+
+    const handleMouseUp = () => {
+      isDraggingRef.current = false
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }
 
   const allMcqItems = useMemo(() => {
     const items: { blockId: string; num: string; answer: string }[] = []
@@ -190,13 +349,7 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
     const cur = targetBlock.answer || 'A'
     const nextAns = cur === 'A' ? 'B' : cur === 'B' ? 'C' : cur === 'C' ? 'D' : cur === 'D' ? 'E' : 'A'
 
-    let updatedText = targetBlock.text.replace(/\[✓\s*[A-E]\]/gi, '').trim()
-    const optRegex = new RegExp(`^(\\(?${nextAns}\\)?[\\.\\)]?\\s*)(.+)`, 'm')
-    if (optRegex.test(updatedText)) {
-      updatedText = updatedText.replace(optRegex, `$1$2 [✓ ${nextAns}]`)
-    } else {
-      updatedText += `\n[✓ ${nextAns}]`
-    }
+    const updatedText = stripInlineAnswerTags(targetBlock.text)
 
     const nextPages = book.pages.map((p) => ({
       ...p,
@@ -273,6 +426,29 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
   useEffect(() => {
     loadKatex()
     hydrateCustomFonts().then((fonts) => setCustomFonts(fonts))
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+        const activeEl = document.activeElement
+        const isInput = activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')
+        if (!isInput) {
+          // Intercept global Ctrl+A so it selects ONLY document body text, NOT website UI!
+          e.preventDefault()
+          const bodyNode = document.querySelector('#page-body-content') || document.querySelector('.page-body-container')
+          if (bodyNode) {
+            const range = document.createRange()
+            range.selectNodeContents(bodyNode)
+            const sel = window.getSelection()
+            if (sel) {
+              sel.removeAllRanges()
+              sel.addRange(range)
+            }
+          }
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
   const refreshFonts = () => setCustomFonts(listCustomFonts())
@@ -522,15 +698,95 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
     }
   }
 
+  const getSelectedBlockIds = (targetBlockId?: string): string[] => {
+    if (!activePage) return []
+    const blockIds = new Set<string>()
+
+    const selection = window.getSelection()
+    const canvasEl = document.getElementById('active-page-canvas') || document.querySelector('.page-canvas.active')
+    const allCanvasBlockIds = canvasEl
+      ? (Array.from(canvasEl.querySelectorAll('[data-block-id]'))
+          .map((el) => el.getAttribute('data-block-id'))
+          .filter(Boolean) as string[])
+      : []
+
+    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+      const selText = selection.toString().trim()
+      const range = selection.getRangeAt(0)
+
+      if (canvasEl) {
+        const blockEls = canvasEl.querySelectorAll('[data-block-id]')
+        blockEls.forEach((el) => {
+          const id = el.getAttribute('data-block-id')
+          if (id) {
+            try {
+              if (selection.containsNode(el, true) || (range.intersectsNode && range.intersectsNode(el))) {
+                blockIds.add(id)
+              }
+            } catch {
+              /* ignore fallback */
+            }
+          }
+        })
+      }
+
+      // Select-All fallback: if selection text covers most or all canvas blocks
+      if (blockIds.size === 0 || selText.length > 50) {
+        if (allCanvasBlockIds.length > 0) {
+          allCanvasBlockIds.forEach((id) => blockIds.add(id))
+        }
+      }
+    }
+
+    // Fall back to savedSelectionBlocksRef if active selection was cleared by click
+    if (blockIds.size === 0 && savedSelectionBlocksRef.current.length > 0) {
+      savedSelectionBlocksRef.current.forEach((id) => blockIds.add(id))
+    }
+
+    if (targetBlockId && !blockIds.has(targetBlockId)) {
+      blockIds.add(targetBlockId)
+    }
+    if (blockIds.size === 0 && selectedBlockId) {
+      blockIds.add(selectedBlockId)
+    }
+
+    return Array.from(blockIds)
+  }
+
+  const setBatchFontSize = (newSize: number, targetBlockId?: string) => {
+    if (!activePage) return
+    const ids = getSelectedBlockIds(targetBlockId)
+    if (ids.length === 0) return
+
+    const nextPages = book.pages.map((p) => {
+      if (p.id !== activePage.id) return p
+      return {
+        ...p,
+        blocks: p.blocks.map((b) => (ids.includes(b.id) ? { ...b, fontSize: newSize } : b)),
+      }
+    })
+    commit({ ...book, pages: nextPages }, `Updated font size to ${newSize}pt for ${ids.length} block(s)`)
+  }
+
   const adjustSelectedFontSize = (delta: number, targetBlockId?: string) => {
-    const bId = targetBlockId || selectedBlockId
-    if (!bId || !activePage) return
-    const target = activePage.blocks.find((b) => b.id === bId)
-    if (!target) return
-    const defaultSize = target.type === 'heading1' ? 22 : target.type === 'heading2' ? 16 : target.type === 'heading3' ? 14 : 13.5
-    const cur = target.fontSize || defaultSize
-    const next = Math.max(8, Math.min(64, Math.round(cur + delta)))
-    updateBlock(target.id, { fontSize: next })
+    if (!activePage) return
+    const ids = getSelectedBlockIds(targetBlockId)
+    if (ids.length === 0) return
+
+    const nextPages = book.pages.map((p) => {
+      if (p.id !== activePage.id) return p
+      return {
+        ...p,
+        blocks: p.blocks.map((b) => {
+          if (!ids.includes(b.id)) return b
+          const defaultSize = b.type === 'heading1' ? 22 : b.type === 'heading2' ? 16 : b.type === 'heading3' ? 14 : 13.5
+          const cur = b.fontSize || defaultSize
+          const next = Math.max(8, Math.min(64, Math.round(cur + delta)))
+          return { ...b, fontSize: next }
+        }),
+      }
+    })
+    commit({ ...book, pages: nextPages }, `Adjusted font size for ${ids.length} block(s)`)
   }
 
   const changeBlockCase = (targetCase: 'upper' | 'lower' | 'title', targetBlockId?: string) => {
@@ -550,6 +806,65 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
 
     updateBlock(target.id, { text: newText })
     showToast(`Converted text to ${targetCase.toUpperCase()}`)
+  }
+
+  const moveBlock = (blockId: string, direction: 'up' | 'down') => {
+    if (!activePage) return
+    const blocks = [...activePage.blocks]
+    const idx = blocks.findIndex((b) => b.id === blockId)
+    if (idx < 0) return
+
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= blocks.length) return
+
+    const temp = blocks[idx]
+    blocks[idx] = blocks[targetIdx]
+    blocks[targetIdx] = temp
+
+    updatePage(activePage.id, (p) => ({ ...p, blocks }), {
+      msg: `Moved block ${direction === 'up' ? 'up ▲' : 'down ▼'}`,
+    })
+  }
+
+  const deleteBlock = (blockId: string) => {
+    if (!activePage) return
+    const nextBlocks = activePage.blocks.filter((b) => b.id !== blockId)
+    updatePage(activePage.id, (p) => ({ ...p, blocks: nextBlocks }), {
+      msg: 'Deleted block',
+    })
+    setSelectedBlockId(null)
+    showToast('Block deleted')
+  }
+
+  const fitContentToPage = (pageId?: string) => {
+    const targetPage = pageId ? book.pages.find((p) => p.id === pageId) : activePage
+    if (!targetPage) return
+
+    const canvasEl = document.getElementById('active-page-canvas') || document.querySelector('.page-canvas.active')
+
+    if (canvasEl) {
+      const scrollH = canvasEl.scrollHeight
+      const clientH = canvasEl.clientHeight
+
+      // Check if page content fills less than 82% of canvas height
+      if (scrollH < clientH * 0.82) {
+        const updatedBlocks = targetPage.blocks.map((b) => {
+          const defaultSize = b.type === 'heading1' ? 22 : b.type === 'heading2' ? 16 : b.type === 'heading3' ? 14 : 13.5
+          const curSize = b.fontSize || defaultSize
+          const nextSize = Math.min(24, Math.round(curSize * 1.1))
+          return { ...b, fontSize: nextSize }
+        })
+
+        const nextPages = book.pages.map((p) => (p.id === targetPage.id ? { ...p, blocks: updatedBlocks } : p))
+        commit({ ...book, pages: nextPages }, `✨ Auto-fit vertical page layout for Page ${targetPage.number}`)
+        showToast(`✨ Scaled line spacing and font size to fill Page ${targetPage.number}`)
+        return
+      }
+    }
+
+    const { book: reflowedBook, blocksShifted } = reflowBookOverflow(book)
+    commit(reflowedBook, blocksShifted > 0 ? `Reflowed ${blocksShifted} block(s) across pages` : `Page layout optimized`)
+    showToast(blocksShifted > 0 ? `✨ Shifted ${blocksShifted} overflowing block(s) to next page` : `✨ Page layout already optimal!`)
   }
 
   const runCompile = () => {
@@ -625,37 +940,52 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
     setBusy(true)
     setOcrPct(15)
     try {
-      const text = await file.text()
+      const slideTexts = await parseMultiPageDocument(file)
       setOcrPct(40)
-      const isRealText = text.trim().length > 30 && !text.includes('%PDF-1.')
-      const baseText = isRealText
-        ? text
-        : `Topic I — ${file.name.replace(/\.[^.]+$/, '')}\n\n1. Question from PDF Document (${file.name})?\n(A) Option A\n(B) Option B\n(C) Option C\n(D) Option D [✓ A]\n\n2. Second Question from Document?\n(A) True\n(B) False [✓ A]`
 
-      let processedText = baseText
-      try {
-        setOcrPct(60)
-        processedText = await callGroqDocText(baseText)
-      } catch (err) {
-        console.warn('Groq Doc Text fallback to local parser:', err)
+      const newPages: BookPage[] = []
+      let totalSolvedCount = 0
+      let totalBlocksCount = 0
+
+      for (let i = 0; i < slideTexts.length; i++) {
+        setOcrPct(Math.min(90, 40 + Math.round(((i + 1) / slideTexts.length) * 45)))
+        const slideText = slideTexts[i]
+        let processedText = slideText
+        try {
+          processedText = await callGroqDocText(slideText)
+        } catch (err) {
+          console.warn(`Groq Doc Text fallback for slide ${i + 1}:`, err)
+        }
+
+        const structured = structureExamText(processedText)
+        const { updatedBlocks, solvedCount } = await aiSolveUnansweredMcqs(structured.blocks)
+        totalSolvedCount += solvedCount
+        totalBlocksCount += updatedBlocks.length
+
+        if (i === 0) {
+          updatePage(activePage.id, (p) => ({
+            ...p,
+            blocks: [...p.blocks.filter((b) => b.text.trim() || b.imageUrl), ...updatedBlocks],
+          }))
+        } else {
+          newPages.push({
+            id: uid('pg'),
+            number: book.pages.length + i,
+            blocks: updatedBlocks.length > 0 ? updatedBlocks : createEmptyPage(book.pages.length + i).blocks,
+          })
+        }
       }
 
-      setOcrPct(80)
-      const structured = structureExamText(processedText)
-      setOcrPct(90)
-      const { updatedBlocks, solvedCount } = await aiSolveUnansweredMcqs(structured.blocks)
       setOcrPct(100)
-
-      updatePage(
-        activePage.id,
-        (p) => ({
-          ...p,
-          blocks: [...p.blocks.filter((b) => b.text.trim() || b.imageUrl), ...updatedBlocks],
-        }),
-        {
-          msg: `AI PDF Scan (${file.name}): Generated ${structured.blocks.length} blocks · AI solved ${solvedCount} answers & built Answer Key!`,
-        },
-      )
+      if (newPages.length > 0) {
+        commit(
+          { ...book, pages: [...book.pages, ...newPages] },
+          `Extracted ${slideTexts.length} slides/pages (${totalBlocksCount} blocks · AI solved ${totalSolvedCount} answers)`,
+        )
+        showToast(`AI Doc Scan: Generated ${slideTexts.length} pages from ${file.name}!`)
+      } else {
+        showToast(`Processed ${file.name} (${totalBlocksCount} blocks · AI solved ${totalSolvedCount} answers)`)
+      }
     } catch {
       showToast('AI Doc Scan: Could not parse document file')
     } finally {
@@ -828,11 +1158,17 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
         className="flex-shrink-0 flex items-center gap-2 px-3 py-2.5 flex-wrap"
         style={{ background: '#FAFAFA', borderBottom: '1px solid #E0E0E0' }}
       >
-        <Btn onClick={undo} disabled={!canUndo} className="px-2.5 py-1.5 text-[12px]" title="Ctrl+Z">
-          Undo
+        <Btn onClick={undo} disabled={!canUndo} className="px-2.5 py-1.5 text-[12px] flex items-center gap-1.5 font-medium" title="Undo (Ctrl+Z)">
+          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+            <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+          </svg>
+          <span>Undo</span>
         </Btn>
-        <Btn onClick={redo} disabled={!canRedo} className="px-2.5 py-1.5 text-[12px]" title="Ctrl+Y">
-          Redo
+        <Btn onClick={redo} disabled={!canRedo} className="px-2.5 py-1.5 text-[12px] flex items-center gap-1.5 font-medium" title="Redo (Ctrl+Y)">
+          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+            <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22l2.37.78c1.05-3.19 4.06-5.5 7.59-5.5 1.96 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
+          </svg>
+          <span>Redo</span>
         </Btn>
         <Sep />
         <Btn onClick={() => addBlock('heading1')} className="px-2.5 py-1.5 text-[12px]">
@@ -998,6 +1334,7 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                 <span className="text-[10px] font-bold text-gray-500">Size:</span>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => adjustSelectedFontSize(-1)}
                   disabled={!selected}
                   className="px-1.5 py-0.5 rounded bg-white text-[11px] font-bold text-gray-700 hover:bg-gray-200 disabled:opacity-40"
@@ -1007,7 +1344,8 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                 </button>
                 <select
                   value={selected?.fontSize || (selected?.type === 'heading1' ? 22 : selected?.type === 'heading2' ? 16 : selected?.type === 'heading3' ? 14 : 13.5)}
-                  onChange={(e) => selected && updateBlock(selected.id, { fontSize: Number(e.target.value) })}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => setBatchFontSize(Number(e.target.value), selected?.id)}
                   disabled={!selected}
                   className="px-1 py-0.5 rounded text-[11px] font-semibold bg-white outline-none disabled:opacity-40"
                   style={{ border: '1px solid #CCC' }}
@@ -1021,6 +1359,7 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                 </select>
                 <button
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => adjustSelectedFontSize(1)}
                   disabled={!selected}
                   className="px-1.5 py-0.5 rounded bg-white text-[11px] font-bold text-gray-700 hover:bg-gray-200 disabled:opacity-40"
@@ -1073,6 +1412,7 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
               </Btn>
               <Btn onClick={() => addBlock('math')} className="px-2.5 py-1.5 text-[12px]">Math Formula</Btn>
               <Btn onClick={makeAnswerKey} className="px-2.5 py-1.5 text-[12px]" variant="accent">Generate Answer Key</Btn>
+              <Btn onClick={() => fitContentToPage()} className="px-2.5 py-1.5 text-[12px] font-semibold" variant="accent" title="Auto-scale line spacing and margins to fill vertical page layout">✨ Auto-Fit Page Layout</Btn>
               <Sep />
               <span className="text-[11px] font-semibold text-gray-500 mr-1">Fonts:</span>
               <select
@@ -1123,8 +1463,18 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
               <Btn onClick={addPage} className="px-2.5 py-1 text-[12px]">+ Page</Btn>
               <Btn onClick={deletePage} disabled={book.pages.length <= 1} className="px-2.5 py-1 text-[12px]">Delete Page</Btn>
               <Sep />
-              <Btn onClick={undo} disabled={!canUndo} className="px-2 py-1 text-[12px]">Undo</Btn>
-              <Btn onClick={redo} disabled={!canRedo} className="px-2 py-1 text-[12px]">Redo</Btn>
+              <Btn onClick={undo} disabled={!canUndo} className="px-2.5 py-1 text-[12px] flex items-center gap-1.5 font-medium" title="Undo (Ctrl+Z)">
+                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                  <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+                </svg>
+                <span>Undo</span>
+              </Btn>
+              <Btn onClick={redo} disabled={!canRedo} className="px-2.5 py-1 text-[12px] flex items-center gap-1.5 font-medium" title="Redo (Ctrl+Y)">
+                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                  <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22l2.37.78c1.05-3.19 4.06-5.5 7.59-5.5 1.96 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
+                </svg>
+                <span>Redo</span>
+              </Btn>
             </>
           )}
           {ribbon === 'stage4' && (
@@ -1357,17 +1707,23 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                 {/* Background Watermark */}
                 {book.headerFooter.watermarkEnabled !== false && (
                   <div
-                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-0 flex items-center justify-center"
+                    className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden"
                     style={{
-                      width: 340 * zoom,
-                      height: 340 * zoom,
                       opacity: book.headerFooter.watermarkOpacity ?? 0.12,
-                      transform: `translate(-50%, -50%) scale(${book.headerFooter.watermarkScale ?? 0.85})`,
                     }}
                   >
-                    {book.headerFooter.watermarkImage ? (
-                      <img src={book.headerFooter.watermarkImage} alt="watermark" className="w-full h-full object-contain" />
-                    ) : (
+                    <div
+                      className="flex items-center justify-center"
+                      style={{
+                        width: 340 * zoom,
+                        height: 340 * zoom,
+                        transform: `scale(${book.headerFooter.watermarkScale ?? 0.85})`,
+                        transformOrigin: 'center center',
+                      }}
+                    >
+                      {book.headerFooter.watermarkImage ? (
+                        <img src={book.headerFooter.watermarkImage} alt="watermark" className="max-w-full max-h-full object-contain mx-auto my-auto" />
+                      ) : (
                       <svg viewBox="0 0 400 400" className="w-full h-full">
                         <circle cx="200" cy="200" r="180" fill="none" stroke="#64748B" strokeWidth="2.5" strokeDasharray="6,4" />
                         <circle cx="200" cy="200" r="162" fill="none" stroke="#64748B" strokeWidth="1.5" />
@@ -1391,6 +1747,7 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                         </text>
                       </svg>
                     )}
+                    </div>
                   </div>
                 )}
 
@@ -1497,17 +1854,23 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                 {/* Background Watermark */}
                 {book.headerFooter.watermarkEnabled !== false && (
                   <div
-                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-0 flex items-center justify-center"
+                    className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden"
                     style={{
-                      width: 340 * zoom,
-                      height: 340 * zoom,
                       opacity: book.headerFooter.watermarkOpacity ?? 0.12,
-                      transform: `translate(-50%, -50%) scale(${book.headerFooter.watermarkScale ?? 0.85})`,
                     }}
                   >
-                    {book.headerFooter.watermarkImage ? (
-                      <img src={book.headerFooter.watermarkImage} alt="watermark" className="w-full h-full object-contain" />
-                    ) : (
+                    <div
+                      className="flex items-center justify-center"
+                      style={{
+                        width: 340 * zoom,
+                        height: 340 * zoom,
+                        transform: `scale(${book.headerFooter.watermarkScale ?? 0.85})`,
+                        transformOrigin: 'center center',
+                      }}
+                    >
+                      {book.headerFooter.watermarkImage ? (
+                        <img src={book.headerFooter.watermarkImage} alt="watermark" className="max-w-full max-h-full object-contain mx-auto my-auto" />
+                      ) : (
                       <svg viewBox="0 0 400 400" className="w-full h-full">
                         <circle cx="200" cy="200" r="180" fill="none" stroke="#64748B" strokeWidth="2.5" strokeDasharray="6,4" />
                         <circle cx="200" cy="200" r="162" fill="none" stroke="#64748B" strokeWidth="1.5" />
@@ -1531,6 +1894,7 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                         </text>
                       </svg>
                     )}
+                    </div>
                   </div>
                 )}
 
@@ -1630,15 +1994,162 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                   {activePage.blocks.map((block) => {
                     const isSel = selectedBlockId === block.id
                     if (block.type === 'image') {
+                      const currentHeight = block.fontSize || 280
+                      const size = currentHeight * zoom
+                      const alignment = block.align || 'center'
+                      const alignClass = alignment === 'left' ? 'text-left' : alignment === 'right' ? 'text-right' : 'text-center'
+                      const imgMarginClass = alignment === 'left' ? 'mr-auto' : alignment === 'right' ? 'ml-auto' : 'mx-auto'
+
                       return (
                         <div
                           key={block.id}
+                          data-block-id={block.id}
                           onClick={() => setSelectedBlockId(block.id)}
-                          className="text-center py-2 break-inside-avoid"
-                          style={{ outline: isSel ? '1px dashed #0E7490' : undefined }}
+                          className={`relative break-inside-avoid my-2.5 transition-all ${alignClass}`}
+                          style={{ outline: isSel ? '2px dashed #0E7490' : undefined, outlineOffset: '4px' }}
                         >
+                          {isSel && (
+                            <div
+                              data-no-copy="true"
+                              className="flex items-center gap-1.5 mb-2 px-2.5 py-1 rounded-lg bg-white text-slate-800 shadow-xl text-[11px] z-40 flex-wrap border border-slate-300 select-none no-copy floating-toolbar transition-shadow hover:shadow-2xl"
+                              style={{
+                                width: 'fit-content',
+                                userSelect: 'none',
+                                WebkitUserSelect: 'none',
+                                transform: toolbarPos ? `translate3d(${toolbarPos.x}px, ${toolbarPos.y}px, 0)` : undefined,
+                                margin: alignment === 'left' ? '0 auto 8px 0' : alignment === 'right' ? '0 0 8px auto' : '0 auto 8px auto',
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div
+                                onMouseDown={handleToolbarDragStart}
+                                className="cursor-grab active:cursor-grabbing px-1 py-0.5 -ml-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors"
+                                title="Click and drag to move toolbar anywhere on screen"
+                              >
+                                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 16 16">
+                                  <circle cx="5" cy="4" r="1.2" />
+                                  <circle cx="11" cy="4" r="1.2" />
+                                  <circle cx="5" cy="8" r="1.2" />
+                                  <circle cx="11" cy="8" r="1.2" />
+                                  <circle cx="5" cy="12" r="1.2" />
+                                  <circle cx="11" cy="12" r="1.2" />
+                                </svg>
+                              </div>
+                              <span className="font-bold text-teal-700 text-[10px] uppercase tracking-wider">🖼 Image</span>
+                              <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
+
+                              {/* Alignment Controls */}
+                              <span className="text-slate-500 font-medium text-[10px]">Align:</span>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => updateBlock(block.id, { align: 'left' })}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${alignment === 'left' ? 'bg-teal-600 text-white border-teal-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'}`}
+                                title="Align image to Left"
+                              >
+                                Left
+                              </button>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => updateBlock(block.id, { align: 'center' })}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${alignment === 'center' ? 'bg-teal-600 text-white border-teal-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'}`}
+                                title="Center align image"
+                              >
+                                Center
+                              </button>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => updateBlock(block.id, { align: 'right' })}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${alignment === 'right' ? 'bg-teal-600 text-white border-teal-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'}`}
+                                title="Align image to Right"
+                              >
+                                Right
+                              </button>
+
+                              <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
+
+                              {/* Size / Height Steppers */}
+                              <span className="text-slate-500 font-medium text-[10px]">Size:</span>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => updateBlock(block.id, { fontSize: Math.max(60, currentHeight - 30) })}
+                                className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center leading-none text-[12px] border border-slate-300 transition-colors"
+                                title="Decrease image size (-30px)"
+                              >
+                                −
+                              </button>
+                              <select
+                                value={currentHeight}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onChange={(e) => updateBlock(block.id, { fontSize: Number(e.target.value) })}
+                                className="px-1.5 py-0.5 rounded bg-white text-slate-800 font-semibold outline-none border border-slate-300 text-[11px] cursor-pointer"
+                              >
+                                {[100, 140, 180, 220, 280, 340, 400, 480, 560].map((h) => (
+                                  <option key={h} value={h}>
+                                    {h}px
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => updateBlock(block.id, { fontSize: Math.min(600, currentHeight + 30) })}
+                                className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center leading-none text-[12px] border border-slate-300 transition-colors"
+                                title="Increase image size (+30px)"
+                              >
+                                +
+                              </button>
+
+                              <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
+
+                              {/* Move Up / Move Down */}
+                              <span className="text-slate-500 font-medium text-[10px]">Position:</span>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => moveBlock(block.id, 'up')}
+                                className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] border border-slate-300 transition-colors flex items-center gap-0.5"
+                                title="Move image block up ▲"
+                              >
+                                ▲ Up
+                              </button>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => moveBlock(block.id, 'down')}
+                                className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] border border-slate-300 transition-colors flex items-center gap-0.5"
+                                title="Move image block down ▼"
+                              >
+                                ▼ Down
+                              </button>
+
+                              <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
+
+                              {/* Delete Button */}
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => deleteBlock(block.id)}
+                                className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] border border-rose-300 transition-colors flex items-center gap-1"
+                                title="Delete image block"
+                              >
+                                🗑 Delete
+                              </button>
+                            </div>
+                          )}
+
                           {block.imageUrl && (
-                            <img src={block.imageUrl} alt="" className="max-w-full mx-auto" style={{ maxHeight: 280 * zoom }} />
+                            <div className={`relative inline-block max-w-full ${imgMarginClass}`}>
+                              <img
+                                src={block.imageUrl}
+                                alt={block.imageAlt || 'document image'}
+                                className="max-w-full rounded shadow-sm transition-all"
+                                style={{ maxHeight: size }}
+                              />
+                            </div>
                           )}
                         </div>
                       )
@@ -1651,35 +2162,62 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                     return (
                       <div
                         key={block.id}
+                        data-block-id={block.id}
                         onClick={() => setSelectedBlockId(block.id)}
-                        className={`relative break-inside-avoid transition-all ${
+                        className={`relative break-inside-avoid transition-all max-w-full ${
                           block.type === 'mcq'
                             ? 'my-3.5 pb-2.5 border-b border-slate-200/80 hover:border-teal-400'
                             : 'my-1.5'
                         }`}
+                        style={{
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                        }}
                       >
                         {isSel ? (
                           <>
                             <div
-                              className="flex items-center gap-1.5 mb-1.5 px-2.5 py-1 rounded-md bg-white text-slate-800 shadow-md text-[11px] z-30 flex-wrap border border-slate-200 select-none no-copy floating-toolbar"
-                              style={{ width: 'fit-content', userSelect: 'none', WebkitUserSelect: 'none' }}
+                              data-no-copy="true"
+                              className="flex items-center gap-1.5 mb-1.5 px-2 py-1 rounded-lg bg-white text-slate-800 shadow-lg text-[11px] z-40 flex-wrap border border-slate-300 select-none no-copy floating-toolbar transition-shadow hover:shadow-xl"
+                              style={{
+                                width: 'fit-content',
+                                userSelect: 'none',
+                                WebkitUserSelect: 'none',
+                                transform: toolbarPos ? `translate3d(${toolbarPos.x}px, ${toolbarPos.y}px, 0)` : undefined,
+                              }}
                               onClick={(e) => e.stopPropagation()}
                             >
+                              <div
+                                onMouseDown={handleToolbarDragStart}
+                                className="cursor-grab active:cursor-grabbing px-1 py-0.5 -ml-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors"
+                                title="Click and drag to move toolbar anywhere on screen"
+                              >
+                                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 16 16">
+                                  <circle cx="5" cy="4" r="1.2" />
+                                  <circle cx="11" cy="4" r="1.2" />
+                                  <circle cx="5" cy="8" r="1.2" />
+                                  <circle cx="11" cy="8" r="1.2" />
+                                  <circle cx="5" cy="12" r="1.2" />
+                                  <circle cx="11" cy="12" r="1.2" />
+                                </svg>
+                              </div>
                               <span className="font-bold text-teal-700 text-[10px] uppercase tracking-wider">{block.type}</span>
                               <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
                               <span className="text-slate-500 font-medium text-[10px]">Size:</span>
                               <button
                                 type="button"
+                                onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => adjustSelectedFontSize(-1, block.id)}
-                                className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center leading-none text-[12px] border border-slate-300"
+                                className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center leading-none text-[12px] border border-slate-300 transition-colors"
                                 title="Smaller text (-1pt)"
                               >
                                 −
                               </button>
                               <select
                                 value={block.fontSize || defaultSize}
-                                onChange={(e) => updateBlock(block.id, { fontSize: Number(e.target.value) })}
-                                className="px-1.5 py-0.5 rounded bg-white text-slate-800 font-semibold outline-none border border-slate-300 text-[11px]"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onChange={(e) => setBatchFontSize(Number(e.target.value), block.id)}
+                                className="px-1.5 py-0.5 rounded bg-white text-slate-800 font-semibold outline-none border border-slate-300 text-[11px] cursor-pointer"
                               >
                                 {[8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 36, 48].map((s) => (
                                   <option key={s} value={s}>
@@ -1689,16 +2227,39 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                               </select>
                               <button
                                 type="button"
+                                onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => adjustSelectedFontSize(1, block.id)}
-                                className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center leading-none text-[12px] border border-slate-300"
+                                className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center leading-none text-[12px] border border-slate-300 transition-colors"
                                 title="Larger text (+1pt)"
                               >
                                 +
                               </button>
+                              {toolbarPos && (
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => setToolbarPos(null)}
+                                  className="text-[10px] text-slate-400 hover:text-teal-700 px-1 font-semibold ml-0.5 border-l border-slate-200"
+                                  title="Reset toolbar position"
+                                >
+                                  ↺ Reset
+                                </button>
+                              )}
                             </div>
                             <textarea
-                              value={block.text}
-                              onChange={(e) => updateBlock(block.id, { text: e.target.value }, true)}
+                              value={block.type === 'mcq' ? stripInlineAnswerTags(block.text) : block.text}
+                              onChange={(e) => {
+                                if (block.type === 'mcq') {
+                                  const textVal = e.target.value
+                                  const extracted = textVal.match(/\[✓\s*([A-E])\]/i)?.[1]
+                                  const cleanVal = stripInlineAnswerTags(textVal)
+                                  const patch: Partial<ContentBlock> = { text: cleanVal }
+                                  if (extracted) patch.answer = extracted.toUpperCase()
+                                  updateBlock(block.id, patch, true)
+                                } else {
+                                  updateBlock(block.id, { text: e.target.value }, true)
+                                }
+                              }}
                               onFocus={() => setSelectedBlockId(block.id)}
                               onKeyDown={(e) => onBlockKey(e, block)}
                               rows={Math.max(block.type === 'mcq' ? 4 : 1, Math.min(10, block.text.split('\n').length))}
@@ -1709,7 +2270,11 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                                 textAlign: block.align || 'left',
                                 color: '#0F172A',
                                 fontFamily: isMath ? mathFont : bodyFont,
-                                lineHeight: 1.5,
+                                lineHeight: 1.2,
+                                overflowWrap: 'anywhere',
+                                wordBreak: 'break-word',
+                                whiteSpace: 'pre-wrap',
+                                maxWidth: '100%',
                               }}
                               placeholder={block.type === 'mcq' ? '1. Question?\n(A) …\n(B) …\n(C) …\n(D) …' : 'Type here'}
                             />
@@ -1723,24 +2288,62 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                               textAlign: block.align || 'left',
                               color: '#0F172A',
                               fontFamily: isMath ? mathFont : bodyFont,
-                              lineHeight: 1.5,
+                              lineHeight: 1.2,
                               userSelect: 'text',
                               WebkitUserSelect: 'text',
+                              overflowWrap: 'anywhere',
+                              wordBreak: 'break-word',
+                              whiteSpace: 'pre-wrap',
+                              maxWidth: '100%',
                             }}
                             title="Click or double-click to edit block"
                             onDoubleClick={() => setSelectedBlockId(block.id)}
                           >
                             {block.text ? (
-                              block.type === 'mcq' ? (
-                                <div className="space-y-0.5">
+                              block.type === 'heading2' && block.text.match(/^\s*(\d+(\.\d+)*)\.?\s+(.+)$/) ? (
+                                (() => {
+                                  const secM = block.text.match(/^\s*(\d+(\.\d+)*)\.?\s+(.+)$/)
+                                  if (!secM) return block.text
+                                  return (
+                                    <div className="flex items-stretch my-2">
+                                      <div className="bg-black text-white font-extrabold px-2.5 py-1 text-[11px] rounded-l flex items-center shrink-0 font-sans">
+                                        {secM[1]}
+                                      </div>
+                                      <div
+                                        className="bg-gray-200 text-black font-bold px-3 py-1 text-[12px] rounded-r flex-1 flex items-center"
+                                        style={{ fontFamily: "'Source Serif 4', Georgia, serif", lineHeight: 1.2 }}
+                                        dangerouslySetInnerHTML={{ __html: renderTextWithMath(secM[3]) }}
+                                      />
+                                    </div>
+                                  )
+                                })()
+                              ) : block.type === 'heading3' && block.text.match(/^\s*(\d+(\.\d+)+)\.?\s+(.+)$/) ? (
+                                (() => {
+                                  const secM = block.text.match(/^\s*(\d+(\.\d+)+)\.?\s+(.+)$/)
+                                  if (!secM) return block.text
+                                  return (
+                                    <div className="flex items-center border-b-2 border-black pb-0.5 my-2">
+                                      <span className="font-extrabold text-[11px] text-black mr-2 font-sans">{secM[1]}</span>
+                                      <span
+                                        className="font-bold text-[11px] text-black"
+                                        style={{ fontFamily: "'Source Serif 4', Georgia, serif", lineHeight: 1.2 }}
+                                        dangerouslySetInnerHTML={{ __html: renderTextWithMath(secM[3]) }}
+                                      />
+                                    </div>
+                                  )
+                                })()
+                              ) : block.type === 'mcq' ? (
+                                <div className="space-y-0.5" style={{ lineHeight: 1.2 }}>
                                   {block.text.split('\n').map((line, i) => {
-                                    const isAns = /\[✓/.test(line)
-                                    const html = renderTextWithMath(line)
+                                    const cleanLine = stripInlineAnswerTags(line)
+                                    if (!cleanLine) return null
+                                    const html = renderTextWithMath(cleanLine)
                                     if (i === 0) {
                                       return (
                                         <div
                                           key={i}
-                                          className="font-bold text-slate-900 leading-snug mb-1"
+                                          className="font-bold text-slate-900 mb-1"
+                                          style={{ lineHeight: 1.2 }}
                                           dangerouslySetInnerHTML={{ __html: html }}
                                         />
                                       )
@@ -1748,16 +2351,15 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                                     return (
                                       <div
                                         key={i}
-                                        className={`pl-3 text-[0.96em] leading-snug ${
-                                          isAns ? 'font-bold text-emerald-700' : 'text-slate-800'
-                                        }`}
+                                        className="pl-3 text-[0.96em] text-slate-800"
+                                        style={{ lineHeight: 1.2 }}
                                         dangerouslySetInnerHTML={{ __html: html }}
                                       />
                                     )
                                   })}
                                 </div>
                               ) : renderTextWithMath(block.text).includes('<span class="katex">') ? (
-                                <div dangerouslySetInnerHTML={{ __html: renderTextWithMath(block.text) }} />
+                                <div style={{ lineHeight: 1.2 }} dangerouslySetInnerHTML={{ __html: renderTextWithMath(block.text) }} />
                               ) : (
                                 block.text
                               )
@@ -1783,42 +2385,57 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                   className="relative z-10 mt-auto pt-2 select-none no-copy document-footer"
                   style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
                 >
-                  <div className="w-full h-[1.5px] bg-black mb-1" />
-                  <div className="flex justify-between items-center">
-                    {(activeIndex + 1) % 2 === 0 ? (
-                      /* Even page: Black tab box on left */
-                      <>
-                        <div
-                          className="bg-black text-white font-extrabold px-3 py-0.5 text-center"
-                          style={{ fontSize: 9.5 * zoom }}
-                        >
-                          {formatPageNumber(activeIndex, book.headerFooter)}
-                        </div>
-                        <div
-                          className="font-bold text-black"
-                          style={{ fontSize: 9.5 * zoom, fontFamily: "'Source Serif 4', Georgia, serif" }}
-                        >
-                          {book.headerFooter.footerLeft || 'Karthikeyan Analysis Learning Resources'}
-                        </div>
-                      </>
-                    ) : (
-                      /* Odd page: Black tab box on right */
-                      <>
-                        <div
-                          className="font-bold text-black"
-                          style={{ fontSize: 9.5 * zoom, fontFamily: "'Source Serif 4', Georgia, serif" }}
-                        >
-                          {book.headerFooter.footerLeft || 'Karthikeyan Analysis Learning Resources'}
-                        </div>
-                        <div
-                          className="bg-black text-white font-extrabold px-3 py-0.5 text-center"
-                          style={{ fontSize: 9.5 * zoom }}
-                        >
-                          {formatPageNumber(activeIndex, book.headerFooter)}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  {book.headerFooter.pageNumberStyle === 'bracket' ? (
+                    <div className="flex items-center w-full mt-auto pt-2">
+                      <div className="flex-1 h-[1.5px] bg-black" />
+                      <div
+                        className="px-3 font-extrabold text-black tracking-widest text-center"
+                        style={{ fontSize: 10 * zoom, fontFamily: 'system-ui, sans-serif' }}
+                      >
+                        {`{ ${activeIndex + 1} }`}
+                      </div>
+                      <div className="flex-1 h-[1.5px] bg-black" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-full h-[1.5px] bg-black mb-1" />
+                      <div className="flex justify-between items-center">
+                        {(activeIndex + 1) % 2 === 0 ? (
+                          /* Even page: Black tab box on left */
+                          <>
+                            <div
+                              className="bg-black text-white font-extrabold px-3 py-0.5 text-center"
+                              style={{ fontSize: 9.5 * zoom }}
+                            >
+                              {formatPageNumber(activeIndex, book.headerFooter)}
+                            </div>
+                            <div
+                              className="font-bold text-black"
+                              style={{ fontSize: 9.5 * zoom, fontFamily: "'Source Serif 4', Georgia, serif" }}
+                            >
+                              {book.headerFooter.footerLeft || 'Karthikeyan Analysis Learning Resources'}
+                            </div>
+                          </>
+                        ) : (
+                          /* Odd page: Black tab box on right */
+                          <>
+                            <div
+                              className="font-bold text-black"
+                              style={{ fontSize: 9.5 * zoom, fontFamily: "'Source Serif 4', Georgia, serif" }}
+                            >
+                              {book.headerFooter.footerLeft || 'Karthikeyan Analysis Learning Resources'}
+                            </div>
+                            <div
+                              className="bg-black text-white font-extrabold px-3 py-0.5 text-center"
+                              style={{ fontSize: 9.5 * zoom }}
+                            >
+                              {formatPageNumber(activeIndex, book.headerFooter)}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

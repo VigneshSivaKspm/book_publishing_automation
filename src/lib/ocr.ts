@@ -158,6 +158,113 @@ export async function ocrImageToBlocks(
   }
 }
 
+export async function parsePdfFile(file: File): Promise<string> {
+  try {
+    const arrayBuffer = await file.arrayBuffer()
+    const decoder = new TextDecoder('utf-8')
+    const raw = decoder.decode(arrayBuffer)
+
+    // Extract readable text stream from PDF Tj / TJ tokens
+    const textMatches = raw.match(/\(([^()]{2,})\)\s*Tj|\[\s*\(([^()]{2,})\)\s*\]\s*TJ/g)
+    if (textMatches && textMatches.length > 5) {
+      const extracted = textMatches
+        .map((m) => m.replace(/[\(\)\[\]]|\bTJ\b|\bTj\b/g, '').trim())
+        .filter((t) => t.length > 1)
+        .join(' ')
+      if (extracted.length > 50) {
+        return extracted
+          .replace(/\s+/g, ' ')
+          .replace(/([.!?])\s+([A-Z])/g, '$1\n$2')
+          .replace(/(\d+\.\d+)\s+([A-Z])/g, '\n\n$1 $2')
+      }
+    }
+  } catch (err) {
+    console.warn('Native PDF extraction fallback:', err)
+  }
+  return ''
+}
+
+/** Parse multi-page PDF or PPTX files into an array of text strings (one per slide/page) */
+export async function parseMultiPageDocument(file: File): Promise<string[]> {
+  const fileName = file.name.toLowerCase()
+  const pageTexts: string[] = []
+
+  try {
+    const arrayBuffer = await file.arrayBuffer()
+    const decoder = new TextDecoder('utf-8', { fatal: false })
+    const rawText = decoder.decode(arrayBuffer)
+
+    // 1. Check for PPTX / slide XML chunks in array buffer string
+    if (fileName.endsWith('.pptx') || fileName.endsWith('.ppt') || rawText.includes('ppt/slides/slide')) {
+      const slideMatches = rawText.split(/(?:ppt\/slides\/slide\d+\.xml|<p:sld[^>]*>|--- Slide \d+ ---)/gi)
+      if (slideMatches.length > 1) {
+        slideMatches.forEach((slideRaw, idx) => {
+          if (idx === 0 && slideMatches.length > 1) return
+          const textTokens = slideRaw.match(/<a:t[^>]*>([^<]+)<\/a:t>/gi)
+          if (textTokens && textTokens.length > 0) {
+            const cleanSlideText = textTokens
+              .map((t) => t.replace(/<[^>]+>/g, '').trim())
+              .filter(Boolean)
+              .join('\n')
+            if (cleanSlideText.length > 10) {
+              pageTexts.push(cleanSlideText)
+            }
+          } else {
+            const cleanSlideText = slideRaw
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+            if (cleanSlideText.length > 20) {
+              pageTexts.push(cleanSlideText)
+            }
+          }
+        })
+      }
+    }
+
+    // 2. Check for PDF page text tokens
+    if (pageTexts.length === 0 && (fileName.endsWith('.pdf') || rawText.includes('%PDF-1.'))) {
+      const rawPdfPages = rawText.split(/\f|\/Page\b|\/Type\s*\/Page\b/gi)
+      if (rawPdfPages.length > 1) {
+        rawPdfPages.forEach((pageRaw) => {
+          const textMatches = pageRaw.match(/\(([^()]{2,})\)\s*Tj|\[\s*\(([^()]{2,})\)\s*\]\s*TJ/g)
+          if (textMatches && textMatches.length > 2) {
+            const extracted = textMatches
+              .map((m) => m.replace(/[\(\)\[\]]|\bTJ\b|\bTj\b/g, '').trim())
+              .filter((t) => t.length > 1)
+              .join(' ')
+            if (extracted.length > 30) {
+              pageTexts.push(
+                extracted
+                  .replace(/\s+/g, ' ')
+                  .replace(/([.!?])\s+([A-Z])/g, '$1\n$2')
+                  .replace(/(\d+\.\d+)\s+([A-Z])/g, '\n\n$1 $2'),
+              )
+            }
+          }
+        })
+      }
+    }
+
+    // 3. Fallback: Split raw text by slide/page section markers or double spacing
+    if (pageTexts.length === 0) {
+      const text = await file.text()
+      const sections = text.split(/(?:\n{3,}|--- Slide \d+ ---|--- Page \d+ ---|Slide \d+:|Page \d+:)/gi)
+      if (sections.length > 1) {
+        sections.forEach((sec) => {
+          if (sec.trim().length > 15) pageTexts.push(sec.trim())
+        })
+      } else if (text.trim().length > 0) {
+        pageTexts.push(text.trim())
+      }
+    }
+  } catch (err) {
+    console.warn('Multi-page document parsing fallback:', err)
+  }
+
+  return pageTexts.length > 0 ? pageTexts : [await file.text().catch(() => '')]
+}
+
 export async function terminateOcr(): Promise<void> {
   if (workerPromise) {
     const w = await workerPromise

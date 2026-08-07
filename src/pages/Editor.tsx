@@ -37,29 +37,29 @@ $$ax^2 + bx + c = 0 \\quad (a \\neq 0)$$
 (A) $b^2 - 4ac$
 (B) $b^2 + 4ac$
 (C) $2b - 4ac$
-(D) $b - 4ac$ [✓ A]
+(D) $b - 4ac$
 
 2. If the roots are real and equal, then
 (A) $D > 0$
 (B) $D = 0$
 (C) $D < 0$
-(D) $D = 1$ [✓ B]
+(D) $D = 1$
 
 ## 1.2 Quadratic Formula
 
-$$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$
+$$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$
 
 3. Solve $x^2 - 5x + 6 = 0$. The roots are
 (A) 2 and 3
 (B) −2 and −3
 (C) 1 and 6
-(D) 0 and 5 [✓ A]
+(D) 0 and 5
 
-4. $$\\int_0^1 (2x+1)\\,dx =$$
+4. $$\int_0^1 (2x+1)\,dx =$$
 (A) 1
 (B) 2
 (C) 3
-(D) 4 [✓ B]
+(D) 4
 `
 
 export default function Editor({ onNavigate, onExport, onOpenBook, pendingAction, onActionConsumed }: EditorProps) {
@@ -281,24 +281,30 @@ export default function Editor({ onNavigate, onExport, onOpenBook, pendingAction
           ))}
         </select>
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
           <button
             onClick={undo}
             disabled={histIdx <= 0}
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--muted)] disabled:opacity-30"
+            className="px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-[12px] font-semibold hover:bg-[var(--muted)] disabled:opacity-30 border border-slate-200 shadow-sm transition-colors"
             style={{ color: 'var(--muted-foreground)' }}
-            title="Undo"
+            title="Undo (Ctrl+Z)"
           >
-            ↶
+            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+              <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+            </svg>
+            <span>Undo</span>
           </button>
           <button
             onClick={redo}
             disabled={histIdx >= history.length - 1}
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[var(--muted)] disabled:opacity-30"
+            className="px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-[12px] font-semibold hover:bg-[var(--muted)] disabled:opacity-30 border border-slate-200 shadow-sm transition-colors"
             style={{ color: 'var(--muted-foreground)' }}
-            title="Redo"
+            title="Redo (Ctrl+Y)"
           >
-            ↷
+            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+              <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22l2.37.78c1.05-3.19 4.06-5.5 7.59-5.5 1.96 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
+            </svg>
+            <span>Redo</span>
           </button>
         </div>
 
@@ -645,73 +651,75 @@ export default function Editor({ onNavigate, onExport, onOpenBook, pendingAction
                     </span>
                   </div>
 
-                  <div className="flex-1 p-3 space-y-2 font-serif overflow-hidden" style={{ fontSize: paper.fontPx }}>
-                    {page.questions.map((q, qi) => (
-                      <div key={`${q.num}-${qi}`} className="leading-snug">
-                        {q.kind === 'heading' ? (
-                          <div
-                            className="font-bold mb-1"
-                            style={{
-                              color: '#0F172A',
-                              fontSize: q.num === 'T' ? paper.fontPx + 2 : paper.fontPx + 0.5,
-                              borderBottom: q.num === 'T' ? '1px solid #E2E8F0' : undefined,
-                              paddingBottom: q.num === 'T' ? 2 : undefined,
-                            }}
-                          >
-                            {typeof q.num === 'string' && /^\d/.test(q.num) ? `${q.num} ` : ''}
-                            {q.question}
-                          </div>
-                        ) : q.kind === 'math' || q.question.includes('$') ? (
-                          <div
-                            style={{ color: '#1A2332' }}
-                            dangerouslySetInnerHTML={{
-                              __html:
-                                (typeof q.num === 'number' ? `<strong>${q.num}. </strong>` : '') +
-                                renderTextWithMath(q.question),
-                            }}
-                          />
-                        ) : q.kind === 'marker' ? (
-                          <div style={{ color: '#0E7490', fontWeight: 600 }}>{q.question}</div>
-                        ) : (
-                          <>
+                    <div className="flex-1 p-3 space-y-2 font-serif overflow-hidden" style={{ fontSize: paper.fontPx, lineHeight: 1.2 }}>
+                      {page.questions.map((q, qi) => (
+                        <div key={`${q.num}-${qi}`} style={{ lineHeight: 1.2 }}>
+                          {q.kind === 'heading' ? (
                             <div
-                              className="font-semibold mb-1"
-                              style={{ color: '#1A2332' }}
+                              className="font-bold mb-1"
+                              style={{
+                                color: '#0F172A',
+                                fontSize: q.num === 'T' ? paper.fontPx + 2 : paper.fontPx + 0.5,
+                                borderBottom: q.num === 'T' ? '1px solid #E2E8F0' : undefined,
+                                paddingBottom: q.num === 'T' ? 2 : undefined,
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              {typeof q.num === 'string' && /^\d/.test(q.num) ? `${q.num} ` : ''}
+                              {q.question}
+                            </div>
+                          ) : q.kind === 'math' || q.question.includes('$') ? (
+                            <div
+                              style={{ color: '#1A2332', lineHeight: 1.2 }}
                               dangerouslySetInnerHTML={{
-                                __html: `${q.num}. ${renderTextWithMath(q.question)}`,
+                                __html:
+                                  (typeof q.num === 'number' ? `<strong>${q.num}. </strong>` : '') +
+                                  renderTextWithMath(q.question),
                               }}
                             />
-                            {q.options.length > 0 && (
+                          ) : q.kind === 'marker' ? (
+                            <div style={{ color: '#0E7490', fontWeight: 600, lineHeight: 1.2 }}>{q.question}</div>
+                          ) : (
+                            <>
                               <div
-                                className="gap-x-2 gap-y-0.5 pl-1.5"
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: cols === '2' && q.options.length > 1 ? '1fr 1fr' : '1fr',
+                                className="font-semibold mb-1"
+                                style={{ color: '#1A2332', lineHeight: 1.2 }}
+                                dangerouslySetInnerHTML={{
+                                  __html: `${q.num}. ${renderTextWithMath(q.question)}`,
                                 }}
-                              >
-                                {q.options.map((opt, i) => {
-                                  const letter = String.fromCharCode(65 + i)
-                                  const isAns = q.answer === letter
-                                  const alreadyLabeled = opt.startsWith('(')
-                                  return (
-                                    <div
-                                      key={i}
-                                      style={{ color: isAns ? '#059669' : '#475569' }}
-                                      dangerouslySetInnerHTML={{
-                                        __html: alreadyLabeled
-                                          ? renderTextWithMath(opt)
-                                          : `(${letter}) ${renderTextWithMath(opt)}`,
-                                      }}
-                                    />
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                              />
+                              {q.options.length > 0 && (
+                                <div
+                                  className="gap-x-2 gap-y-0.5 pl-1.5"
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: cols === '2' && q.options.length > 1 ? '1fr 1fr' : '1fr',
+                                    lineHeight: 1.2,
+                                  }}
+                                >
+                                  {q.options.map((opt, i) => {
+                                    const letter = String.fromCharCode(65 + i)
+                                    const cleanOpt = opt.replace(/\[\s*[✓✔]?\s*\(?[A-Ea-e1-4?]?\)?\s*\]/gi, '').trim()
+                                    const alreadyLabeled = cleanOpt.startsWith('(')
+                                    return (
+                                      <div
+                                        key={i}
+                                        style={{ color: '#475569', lineHeight: 1.2 }}
+                                        dangerouslySetInnerHTML={{
+                                          __html: alreadyLabeled
+                                            ? renderTextWithMath(cleanOpt)
+                                            : `(${letter}) ${renderTextWithMath(cleanOpt)}`,
+                                        }}
+                                      />
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
 
                   <div
                     className="flex px-3 py-1 flex-shrink-0 mt-auto"

@@ -14,19 +14,21 @@ import { createNewBook } from './types'
 const LIBRARY_KEY = 'figma.library.v1'
 
 function createDefaultSeed(): BookDocument[] {
-  const b1 = createNewBook('Integral Calculus', {
+  const b1 = createNewBook('Micro Economics', {
     paperSize: 'A4',
-    author: 'Karthikeyan Analysis Learning Resources',
-    subtitle: 'Chapter 02 · Multiple Integrals & Calculus Practice',
+    author: 'Karthikeyan Analysis Study Circle',
+    subtitle: 'Chapter 02 · Micro Economics Theory & Practice Guide',
   })
-  b1.headerFooter.chapterTitle = 'Integral Calculus'
+  b1.headerFooter.chapterTitle = 'Micro Economics'
   b1.headerFooter.chapterNumber = '02'
+  b1.headerFooter.chapterLabel = 'Chapter'
   b1.headerFooter.middleBoxText = 'Karthikeyan Analysis Study Circle'
-  b1.headerFooter.middleRightText = 'Integral Calculus'
+  b1.headerFooter.middleRightText = 'Economics'
   b1.headerFooter.footerLeft = 'Karthikeyan Analysis Learning Resources'
   b1.headerFooter.watermarkText = 'KARTHIKEYAN ANALYSIS STUDY CIRCLE'
   b1.headerFooter.layoutColumns = 2
   b1.headerFooter.showColumnDivider = true
+  b1.headerFooter.pageNumberStyle = 'bracket'
 
   b1.pages = [
     {
@@ -34,60 +36,112 @@ function createDefaultSeed(): BookDocument[] {
       number: 1,
       blocks: [
         {
-          id: 'b1',
-          type: 'mcq',
-          text: '1. Evaluate: $\\int_{0}^{1} \\int_{0}^{1} \\int_{0}^{1} e^{x+y+z} \\, dx \\, dy \\, dz$ **(2025)**\n(A) $e^3 - 1$\n(B) $(e - 1)^3$ [✓ B]\n(C) $3(e - 1)$\n(D) $3e - 1$',
-          options: ['$e^3 - 1$', '$(e - 1)^3$', '$3(e - 1)$', '$3e - 1$'],
-          answer: 'B',
+          id: 'b1_1',
+          type: 'paragraph',
+          text: '• Micro-economics is the study of the economic actions of individual units say households, firms or industries. It studies how business firms operate under different market conditions and how the combined actions of buyers and sellers determine prices.',
+          align: 'justify',
         },
         {
-          id: 'b2',
-          type: 'mcq',
-          text: '2. $\\int_{0}^{-a} \\int_{0}^{\\sqrt{ay}} -xy \\, dx \\, dy =$ **(2025)**\n(A) $\\frac{a^4}{6}$ [✓ A]\n(B) $-\\frac{a^4}{6}$\n(C) $\\frac{a^3}{3}$\n(D) $-\\frac{a^3}{3}$',
-          options: ['$\\frac{a^4}{6}$', '$-\\frac{a^4}{6}$', '$\\frac{a^3}{3}$', '$-\\frac{a^3}{3}$'],
-          answer: 'A',
+          id: 'b1_2',
+          type: 'paragraph',
+          text: '• Micro economics covers:\n  I) Value theory (Product pricing and factor pricing)\n  II) Theory of economic welfare',
+          align: 'justify',
         },
         {
-          id: 'b3',
-          type: 'mcq',
-          text: '3. Evaluate: $\\int_{-\\frac{\\pi}{2}}^{\\frac{\\pi}{2}} (x \\cos x + x^3 \\sec x) \\, dx$ **(2025)**\n(A) $1$\n(B) $\\frac{\\pi}{2}$\n(C) $\\pi$\n(D) $0$ [✓ D]',
-          options: ['$1$', '$\\frac{\\pi}{2}$', '$\\pi$', '$0$'],
-          answer: 'D',
+          id: 'b1_3',
+          type: 'heading2',
+          text: '2.1 Importance of Micro Economics',
+          align: 'left',
         },
         {
-          id: 'b4',
-          type: 'mcq',
-          text: '4. $\\int_{0}^{\\infty} \\int_{x}^{\\infty} \\frac{e^{-y}}{y} \\, dy \\, dx =$ **(2025)**\n(A) $0$\n(B) $1$ [✓ B]\n(C) $\\infty$\n(D) $-1$',
-          options: ['$0$', '$1$', '$\\infty$', '$-1$'],
-          answer: 'B',
+          id: 'b1_4',
+          type: 'list',
+          text: '• To understand the operation of an economy',
+          align: 'left',
         },
         {
-          id: 'b5',
-          type: 'mcq',
-          text: '5. The change of order of integration in the integral $\\int_{0}^{\\infty} \\int_{x}^{\\infty} \\frac{e^{-y}}{y} \\, dy \\, dx$ is **(2025)**\n(A) $\\int_{0}^{\\infty} \\int_{0}^{y} \\frac{e^{-y}}{y} \\, dx \\, dy$ [✓ A]\n(B) $\\int_{0}^{\\infty} \\int_{y}^{\\infty} \\frac{e^{-y}}{y} \\, dx \\, dy$\n(C) $\\int_{0}^{\\infty} \\int_{0}^{y} \\frac{e^{-y}}{x} \\, dy \\, dx$\n(D) $\\int_{0}^{\\infty} \\int_{y}^{\\infty} \\frac{e^{-y}}{y} \\, dy \\, dx$',
-          options: ['$\\int_{0}^{\\infty} \\int_{0}^{y} \\frac{e^{-y}}{y} \\, dx \\, dy$', '$\\int_{0}^{\\infty} \\int_{y}^{\\infty} \\frac{e^{-y}}{y} \\, dx \\, dy$', '$\\int_{0}^{\\infty} \\int_{0}^{y} \\frac{e^{-y}}{x} \\, dy \\, dx$', '$\\int_{0}^{\\infty} \\int_{y}^{\\infty} \\frac{e^{-y}}{y} \\, dy \\, dx$'],
-          answer: 'A',
+          id: 'b1_5',
+          type: 'list',
+          text: '• To provide tools for economic policies',
+          align: 'left',
         },
         {
-          id: 'b6',
-          type: 'mcq',
-          text: '6. The value of $\\int_{0}^{1} \\int_{x^2}^{2-x} xy \\, dx \\, dy$ is **(2025)**\n(A) $5/8$\n(B) $3/8$ [✓ B]\n(C) $1/8$\n(D) $11/8$',
-          options: ['$5/8$', '$3/8$', '$1/8$', '$11/8$'],
-          answer: 'B',
+          id: 'b1_6',
+          type: 'list',
+          text: '• To examine the condition of economic welfare',
+          align: 'left',
         },
         {
-          id: 'b7',
-          type: 'mcq',
-          text: '7. The solution of $\\int_{0}^{\\pi} \\theta \\sin^3 \\theta \\, d\\theta$ **(2025)**\n(A) $2\\pi$\n(B) $3\\pi$\n(C) $\\frac{2\\pi}{3}$ [✓ C]\n(D) $\\frac{3\\pi}{2}$',
-          options: ['$2\\pi$', '$3\\pi$', '$\\frac{2\\pi}{3}$', '$\\frac{3\\pi}{2}$'],
-          answer: 'C',
+          id: 'b1_7',
+          type: 'list',
+          text: '• Efficient utilization of resources',
+          align: 'left',
         },
         {
-          id: 'b8',
-          type: 'mcq',
-          text: '8. When $n$ is a positive integer, the reduction formula for $\\int \\frac{dx}{(x^2+a^2)^n}$ is **(2025)**\n(A) $\\frac{x}{a^2(2n-2)(x^2+a^2)^{n-1}} - \\frac{2n-3}{2(n-1)a^2} I_{n-1}$\n(B) $\\frac{x}{a^2(2n-2)(x^2+a^2)^{n-1}} + \\frac{2n-3}{2(n-1)a^2} I_{n-1}$ [✓ B]',
-          options: ['$\\frac{x}{a^2(2n-2)(x^2+a^2)^{n-1}} - \\frac{2n-3}{2(n-1)a^2} I_{n-1}$', '$\\frac{x}{a^2(2n-2)(x^2+a^2)^{n-1}} + \\frac{2n-3}{2(n-1)a^2} I_{n-1}$'],
-          answer: 'B',
+          id: 'b1_8',
+          type: 'list',
+          text: '• Useful in international trade',
+          align: 'left',
+        },
+        {
+          id: 'b1_9',
+          type: 'list',
+          text: '• Useful in decision making',
+          align: 'left',
+        },
+        {
+          id: 'b1_10',
+          type: 'list',
+          text: '• Optimal resource allocation',
+          align: 'left',
+        },
+        {
+          id: 'b1_11',
+          type: 'list',
+          text: '• Basis for prediction',
+          align: 'left',
+        },
+        {
+          id: 'b1_12',
+          type: 'list',
+          text: '• Price determination',
+          align: 'left',
+        },
+        {
+          id: 'b1_13',
+          type: 'heading2',
+          text: '2.2 Sub Divisions of Micro Economics',
+          align: 'left',
+        },
+        {
+          id: 'b1_14',
+          type: 'heading3',
+          text: 'Consumption',
+          align: 'left',
+        },
+        {
+          id: 'b1_15',
+          type: 'paragraph',
+          text: '• Human wants coming under consumption is the starting point of economic activity.',
+          align: 'justify',
+        },
+        {
+          id: 'b1_16',
+          type: 'paragraph',
+          text: '• In this section the characteristics of human wants based on the behaviour of the consumer, diminishing marginal utility and consumer’s surplus are dealt with.',
+          align: 'justify',
+        },
+        {
+          id: 'b1_17',
+          type: 'heading3',
+          text: 'Production',
+          align: 'left',
+        },
+        {
+          id: 'b1_18',
+          type: 'paragraph',
+          text: '• It is the process of transformation of inputs into output.',
+          align: 'justify',
         },
       ],
     },
@@ -96,63 +150,207 @@ function createDefaultSeed(): BookDocument[] {
       number: 2,
       blocks: [
         {
-          id: 'b9',
-          type: 'mcq',
-          text: '9. The value of $\\int \\frac{dx}{(e^x+e^{-x})^2}$ **(2025)**\n(A) $\\frac{1}{2(e^{2x}+3)} + c$\n(B) $-\\frac{1}{2(e^{2x}+1)} + c$ [✓ B]\n(C) $\\frac{1}{e^{2x}}$\n(D) $0$',
-          options: ['$\\frac{1}{2(e^{2x}+3)} + c$', '$-\\frac{1}{2(e^{2x}+1)} + c$', '$\\frac{1}{e^{2x}}$', '$0$'],
-          answer: 'B',
+          id: 'b2_1',
+          type: 'heading2',
+          text: '2.3 Basic Economic Problems',
+          align: 'left',
         },
         {
-          id: 'b10',
-          type: 'mcq',
-          text: '10. $\\int_{0}^{1} x(1 - x^2)^{1/2} \\, dx = $ **(2025)**\n(A) $0$\n(B) $\\frac{\\pi}{2}$\n(C) $\\frac{\\pi}{3}$\n(D) $\\frac{1}{3}$ [✓ D]',
-          options: ['$0$', '$\\frac{\\pi}{2}$', '$\\frac{\\pi}{3}$', '$\\frac{1}{3}$'],
-          answer: 'D',
+          id: 'b2_2',
+          type: 'heading3',
+          text: 'What and how much to produce?',
+          align: 'left',
         },
         {
-          id: 'b11',
-          type: 'mcq',
-          text: '11. The value of $\\int_{0}^{1} \\int_{0}^{2} (x^2 + y^2) \\, dy \\, dx$ is **(2025)**\n(A) $\\frac{8}{3}$\n(B) $\\frac{2}{3}$\n(C) $\\frac{10}{3}$ [✓ C]\n(D) $\\frac{4}{3}$',
-          options: ['$\\frac{8}{3}$', '$\\frac{2}{3}$', '$\\frac{10}{3}$', '$\\frac{4}{3}$'],
-          answer: 'C',
+          id: 'b2_3',
+          type: 'paragraph',
+          text: '• Every society must decide on what goods it will produce and how much of these it will produce.',
+          align: 'justify',
         },
         {
-          id: 'b12',
+          id: 'b2_4',
+          type: 'paragraph',
+          text: '• In this process, crucial decisions include whether to produce agricultural goods or industrial goods, consumer goods or capital goods.',
+          align: 'justify',
+        },
+        {
+          id: 'b2_5',
+          type: 'heading3',
+          text: 'How to Produce?',
+          align: 'left',
+        },
+        {
+          id: 'b2_6',
+          type: 'paragraph',
+          text: '• Every society has to decide whether it will use labour-intensive technology or capital-intensive technology.',
+          align: 'justify',
+        },
+        {
+          id: 'b2_7',
+          type: 'heading2',
+          text: '2.4 Production Possibility Curve',
+          align: 'left',
+        },
+        {
+          id: 'b2_8',
+          type: 'paragraph',
+          text: '• The problem of choice between relatively scarce commodities due to limited productive resources can be illustrated with a geometric device known as production possibility curve (PPC).',
+          align: 'justify',
+        },
+        {
+          id: 'b2_9',
+          type: 'heading3',
+          text: '2.4.1. Uses of production possibility curve',
+          align: 'left',
+        },
+        {
+          id: 'b2_10',
+          type: 'paragraph',
+          text: '➢ The Notion of Scarcity: Reflects constraints imposed by economic scarcity.\n➢ Solution of central problems: Helps decide location on the PPC.',
+          align: 'justify',
+        },
+      ],
+    },
+    {
+      id: 'p3',
+      number: 3,
+      blocks: [
+        {
+          id: 'b3_1',
+          type: 'heading2',
+          text: '2.7 Law of Demand',
+          align: 'left',
+        },
+        {
+          id: 'b3_2',
+          type: 'paragraph',
+          text: '• The Law of Demand was first stated by Augustin Cournot in 1838. Later, it was refined and elaborated by Alfred Marshall.',
+          align: 'justify',
+        },
+        {
+          id: 'b3_3',
+          type: 'paragraph',
+          text: '“Demand in economics is the desire to possess something and the willingness and ability to pay a certain price in order to possess it.” – J. Harvey',
+          align: 'justify',
+        },
+        {
+          id: 'b3_4',
+          type: 'heading3',
+          text: '2.7.2. Demand Function',
+          align: 'left',
+        },
+        {
+          id: 'b3_5',
+          type: 'math',
+          text: '$$D = f(P)$$',
+          align: 'center',
+        },
+        {
+          id: 'b3_6',
+          type: 'paragraph',
+          text: 'where $D$ = Demand, $f$ = function, $P$ = Price.',
+          align: 'justify',
+        },
+        {
+          id: 'b3_7',
+          type: 'heading2',
+          text: '2.8 Elasticity of Demand',
+          align: 'left',
+        },
+        {
+          id: 'b3_8',
+          type: 'paragraph',
+          text: '• Elasticity of demand explains the rate of change in quantity demanded due to a given change in price.',
+          align: 'justify',
+        },
+        {
+          id: 'b3_9',
+          type: 'heading3',
+          text: '2.8.3. Measurement of price elasticity of demand',
+          align: 'left',
+        },
+        {
+          id: 'b3_10',
+          type: 'math',
+          text: '$$e_p = \\frac{\\% \\Delta Q}{\\% \\Delta P} = \\frac{\\Delta Q / Q}{\\Delta P / P} = \\frac{\\Delta Q}{\\Delta P} \\times \\frac{P}{Q}$$',
+          align: 'center',
+        },
+        {
+          id: 'b3_11',
+          type: 'heading2',
+          text: '2.21 Cobb–Douglas Production Function',
+          align: 'left',
+        },
+        {
+          id: 'b3_12',
+          type: 'math',
+          text: '$$Q = A L^{\\alpha} K^{\\beta}$$',
+          align: 'center',
+        },
+      ],
+    },
+    {
+      id: 'p4',
+      number: 4,
+      blocks: [
+        {
+          id: 'b4_1',
+          type: 'heading1',
+          text: 'Review Summary & Practice Question Bank',
+          align: 'center',
+        },
+        {
+          id: 'b4_2',
           type: 'mcq',
-          text: '12. $\\int e^x [f(x) + f\'(x)] \\, dx = $ **(2025)**\n(A) $e^x f(x)$ [✓ A]\n(B) $e^{ax} f(x)$\n(C) $\\frac{e^{ax} f(x)}{a}$\n(D) $e^x f\'(x)$',
-          options: ['$e^x f(x)$', '$e^{ax} f(x)$', '$\\frac{e^{ax} f(x)}{a}$', '$e^x f\'(x)$'],
+          text: '1. Elasticity of demand formula $e_p = \\frac{\\% \\Delta Q}{\\% \\Delta P}$ measures responsiveness of quantity to price. The demand is elastic when:\n(A) $e_p > 1$\n(B) $e_p = 0$\n(C) $e_p < 1$\n(D) $e_p = \\infty$',
+          options: ['$e_p > 1$', '$e_p = 0$', '$e_p < 1$', '$e_p = \\infty$'],
           answer: 'A',
         },
         {
-          id: 'b13',
+          id: 'b4_3',
           type: 'mcq',
-          text: '13. Evaluate $\\int_{0}^{a} \\int_{0}^{b} \\int_{0}^{c} (x + y + z) \\, dz \\, dy \\, dx$ **(2025)**\n(A) $\\frac{abc}{3}(a+b+c)$\n(B) $abc$\n(C) $a+b+c$\n(D) $\\frac{abc}{2}(a+b+c)$ [✓ D]',
-          options: ['$\\frac{abc}{3}(a+b+c)$', '$abc$', '$a+b+c$', '$\\frac{abc}{2}(a+b+c)$'],
-          answer: 'D',
+          text: '2. The linear homogeneous Cobb-Douglas production function is written as:\n(A) $Q = A L^{\\alpha} K^{\\beta}$ where $\\alpha + \\beta = 1$\n(B) $Q = A (L + K)$\n(C) $Q = A (L / K)$\n(D) $Q = A L^2 K^2$',
+          options: ['$Q = A L^{\\alpha} K^{\\beta}$ where $\\alpha + \\beta = 1$', '$Q = A (L + K)$', '$Q = A (L / K)$', '$Q = A L^2 K^2$'],
+          answer: 'A',
         },
         {
-          id: 'b14',
+          id: 'b4_4',
           type: 'mcq',
-          text: '14. $\\int_{0}^{1} \\int_{y^2}^{1} \\int_{0}^{1-x} x \\, dz \\, dx \\, dy = $ **(2025)**\n(A) $35/4$\n(B) $4/35$ [✓ B]\n(C) $5/35$\n(D) $6/35$',
-          options: ['$35/4$', '$4/35$', '$5/35$', '$6/35$'],
-          answer: 'B',
+          text: '3. What represents the locus of combinations of two goods yielding equal satisfaction?\n(A) Indifference Curve\n(B) Iso-cost line\n(C) Supply curve\n(D) Production function',
+          options: ['Indifference Curve', 'Iso-cost line', 'Supply curve', 'Production function'],
+          answer: 'A',
         },
         {
-          id: 'b15',
+          id: 'b4_5',
           type: 'mcq',
-          text: '15. $\\int \\frac{1}{1+\\cos x} \\, dx = $ **(2025)**\n(A) $\\cot x - \\csc x + c$\n(B) $\\csc x - \\cot x + c$ [✓ B]\n(C) $\\tan x - \\cot x + c$\n(D) $\\cot x - \\tan x + c$',
-          options: ['$\\cot x - \\csc x + c$', '$\\csc x - \\cot x + c$', '$\\tan x - \\cot x + c$', '$\\cot x - \\tan x + c$'],
-          answer: 'B',
+          text: '4. The condition for consumer equilibrium under Equi-Marginal Utility is:\n(A) $\\frac{MU_x}{P_x} = \\frac{MU_y}{P_y} = MU_m$\n(B) $MU_x \\times P_x = MU_y \\times P_y$\n(C) $P_x = P_y$\n(D) $MU_x = 0$',
+          options: ['$\\frac{MU_x}{P_x} = \\frac{MU_y}{P_y} = MU_m$', '$MU_x \\times P_x = MU_y \\times P_y$', '$P_x = P_y$', '$MU_x = 0$'],
+          answer: 'A',
+        },
+        {
+          id: 'b4_6',
+          type: 'mcq',
+          text: '5. In microeconomics, Giffen paradox refers to an exception where:\n(A) Demand rises as price rises for inferior goods\n(B) Demand falls as price falls for luxury goods\n(C) Price stays constant\n(D) Supply becomes vertical',
+          options: ['Demand rises as price rises for inferior goods', 'Demand falls as price falls for luxury goods', 'Price stays constant', 'Supply becomes vertical'],
+          answer: 'A',
         },
       ],
     },
   ]
 
-  const b2 = createNewBook('Class 12 Physics & Math Workbook', {
-    paperSize: 'B5',
-    author: 'Publishing Team',
-    subtitle: 'Competitive Exam Fast Track',
+  const b2 = createNewBook('Integral Calculus', {
+    paperSize: 'A4',
+    author: 'Karthikeyan Analysis Study Circle',
+    subtitle: 'Chapter 02 · Multiple Integrals & Calculus Practice',
   })
+  b2.headerFooter.chapterTitle = 'Integral Calculus'
+  b2.headerFooter.chapterNumber = '02'
+  b2.headerFooter.middleBoxText = 'Karthikeyan Analysis Study Circle'
+  b2.headerFooter.middleRightText = 'Integral Calculus'
+  b2.headerFooter.footerLeft = 'Karthikeyan Analysis Learning Resources'
+  b2.headerFooter.watermarkText = 'KARTHIKEYAN ANALYSIS STUDY CIRCLE'
+  b2.headerFooter.layoutColumns = 2
+  b2.headerFooter.showColumnDivider = true
 
   return [b1, b2]
 }

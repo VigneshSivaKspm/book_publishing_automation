@@ -165,3 +165,51 @@ body {
 
 .katex { font-size: 1.05em !important; }
 .katex-display { margin: 0.4em 0 !important; }
+
+/* Prevent selecting UI text across the entire app (navbars, sidebars, buttons, toolbars, etc.) */
+.no-copy,
+.select-none,
+button,
+select,
+nav,
+aside,
+header,
+.floating-toolbar,
+.ribbon-bar,
+.stage-toolbar,
+.sidebar-container,
+.app-header,
+.document-header,
+.document-footer,
+.watermark-layer {
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+}
+
+/* Allow text selection ONLY inside document page content area and text fields */
+.page-body-container,
+.page-body-container *,
+.editable-text,
+.select-text,
+input[type="text"],
+textarea {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
+/* Global Responsive Word Wrapping to Prevent Page Overflow */
+.page-canvas,
+.page-canvas *,
+.page-body-container,
+.page-body-container *,
+.editable-text,
+.select-text,
+textarea {
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  max-width: 100%;
+}

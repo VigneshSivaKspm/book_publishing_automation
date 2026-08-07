@@ -21,6 +21,7 @@ export function extractHeaderText(book: BookDocument): string {
 /** Extract clean text for Body Content section (all pages or single page) */
 export function extractBodyContentText(pages: BookPage[], options?: { cleanAnswers?: boolean }): string {
   const pageTexts: string[] = []
+  const shouldClean = options?.cleanAnswers !== false // Default to cleaning answer tags from body stream
 
   pages.forEach((page, pageIdx) => {
     const blockTexts: string[] = []
@@ -29,8 +30,17 @@ export function extractBodyContentText(pages: BookPage[], options?: { cleanAnswe
         blockTexts.push(`\n### ${b.text}\n`)
       } else if (b.type === 'mcq') {
         let txt = b.text
-        if (options?.cleanAnswers) {
-          txt = txt.replace(/\[✓\s*[A-E]?\]/gi, '').trim()
+        if (shouldClean) {
+          txt = txt
+            .split('\n')
+            .map((line) =>
+              line
+                .replace(/\[\s*[✓✔]?\s*\(?[A-Ea-e1-4?]?\)?\s*\]/gi, '')
+                .replace(/\s*Answer\s*[:\-]\s*\(?[A-Ea-e1-4]\)?\s*$/gi, '')
+                .trim(),
+            )
+            .filter(Boolean)
+            .join('\n')
         }
         blockTexts.push(txt)
       } else if (b.type === 'math') {
@@ -83,7 +93,7 @@ export function extractFooterText(book: BookDocument): string {
 /** Extract Full Document string (Header + Body + Footer/Answer Key) */
 export function extractFullDocumentText(book: BookDocument): string {
   const header = extractHeaderText(book)
-  const body = extractBodyContentText(book.pages)
+  const body = extractBodyContentText(book.pages, { cleanAnswers: true })
   const footer = extractFooterText(book)
 
   return `${header}\n\n${body}\n\n${footer}`
@@ -114,7 +124,11 @@ export function extractActivePageDomText(containerEl?: HTMLElement | null): stri
   clone.querySelectorAll(removeSelectors.join(',')).forEach((el) => el.remove())
 
   let text = clone.innerText || clone.textContent || ''
-  text = text.replace(/\n{3,}/g, '\n\n').trim()
+  text = text
+    .replace(/\[\s*[✓✔]?\s*\(?[A-Ea-e1-4?]?\)?\s*\]/gi, '')
+    .replace(/\s*Answer\s*[:\-]\s*\(?[A-Ea-e1-4]\)?/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   return text
 }
 
