@@ -1115,6 +1115,10 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
       e.preventDefault()
       addBlock('paragraph')
     }
+    if ((e.key === 'Backspace' || e.key === 'Delete') && block.text.trim() === '') {
+      e.preventDefault()
+      deleteBlock(block.id)
+    }
   }
 
   const selected = activePage?.blocks.find((b) => b.id === selectedBlockId)
@@ -1193,52 +1197,6 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
           </Btn>
         ))}
         <Sep />
-        <select
-          value={book.fontId === 'custom' ? `custom:${book.customFontFamily || ''}` : book.fontId}
-          onChange={(e) => {
-            const v = e.target.value
-            if (v.startsWith('custom:')) {
-              const fam = v.slice(7)
-              const found = customFonts.find((f) => f.family === fam)
-              if (found) applyCustomAsBody(found)
-              return
-            }
-            commit({ ...book, fontId: v, customFontFamily: undefined, customFontLabel: undefined }, getPreset(v).label)
-          }}
-          className="px-2 py-1.5 rounded text-[12px] outline-none max-w-[160px]"
-          style={{ border: '1px solid #CCC', background: 'white' }}
-          title="Body font"
-        >
-          {FONT_PRESETS.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.group}: {f.label}
-            </option>
-          ))}
-          {customFonts.map((f) => (
-            <option key={f.id} value={`custom:${f.family}`}>
-              Custom: {f.name}
-            </option>
-          ))}
-        </select>
-        <Sep />
-        <div className="flex items-center bg-gray-200 p-0.5 rounded border border-gray-300">
-          <button
-            type="button"
-            onClick={() => commit({ ...book, headerFooter: { ...book.headerFooter, layoutColumns: 1 } })}
-            className={`px-2 py-1 text-[11px] font-bold rounded ${book.headerFooter.layoutColumns === 1 ? 'bg-teal-700 text-white' : 'text-gray-700 hover:bg-gray-300'}`}
-            title="Single Column Layout"
-          >
-            1 Col
-          </button>
-          <button
-            type="button"
-            onClick={() => commit({ ...book, headerFooter: { ...book.headerFooter, layoutColumns: 2 } })}
-            className={`px-2 py-1 text-[11px] font-bold rounded ${book.headerFooter.layoutColumns === 2 ? 'bg-teal-700 text-white' : 'text-gray-700 hover:bg-gray-300'}`}
-            title="Two Column Layout with Divider Line"
-          >
-            2 Col
-          </button>
-        </div>
         <Btn onClick={() => setShowHfModal(true)} variant="accent" className="px-2.5 py-1.5 text-[12px] font-semibold">
           🎨 Header &amp; Watermark Studio
         </Btn>
@@ -1316,6 +1274,16 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
               <Btn onClick={() => addBlock('paragraph')} className="px-2.5 py-1.5 text-[12px]">Paragraph</Btn>
               <Btn onClick={() => addBlock('list')} className="px-2.5 py-1.5 text-[12px]">List</Btn>
               <Btn onClick={() => fileImageRef.current?.click()} className="px-2.5 py-1.5 text-[12px]">Insert Image</Btn>
+              {selected && (
+                <button
+                  type="button"
+                  onClick={() => deleteBlock(selected.id)}
+                  className="px-2.5 py-1.5 text-[12px] bg-rose-50 border border-rose-300 text-rose-700 hover:bg-rose-600 hover:text-white font-bold rounded transition-colors flex items-center gap-1 cursor-pointer ml-1"
+                  title="Delete currently selected section / block"
+                >
+                  🗑 Remove Block
+                </button>
+              )}
               <Sep />
               <Btn onClick={pastePaper} className="px-3 py-1.5 text-[12px] font-semibold" variant="accent">
                 Paste Text / Content
@@ -1402,6 +1370,16 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
               <span className="text-[11px] font-semibold text-gray-500 mr-1">Structure &amp; MCQs:</span>
               <Btn onClick={insertTopic} className="px-2.5 py-1.5 text-[12px]">Topic Tree</Btn>
               <Btn onClick={() => addBlock('mcq')} className="px-2.5 py-1.5 text-[12px]">Blank MCQ</Btn>
+              {selected && (
+                <button
+                  type="button"
+                  onClick={() => deleteBlock(selected.id)}
+                  className="px-2.5 py-1.5 text-[12px] bg-rose-50 border border-rose-300 text-rose-700 hover:bg-rose-600 hover:text-white font-bold rounded transition-colors flex items-center gap-1 cursor-pointer ml-1"
+                  title="Delete currently selected section / block"
+                >
+                  🗑 Remove Block
+                </button>
+              )}
               <Btn
                 onClick={() =>
                   addBlocks(generateMcqBank(book.title, 5, nextMcqNumber(activePage?.blocks || [])), '5 MCQs + answers')
@@ -1427,20 +1405,47 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                   }
                   commit({ ...book, fontId: v, customFontFamily: undefined, customFontLabel: undefined }, getPreset(v).label)
                 }}
-                className="px-2 py-1.5 rounded text-[12px] outline-none max-w-[140px]"
+                className="px-2 py-1 rounded text-[11px] outline-none max-w-[140px] font-medium truncate cursor-pointer"
                 style={{ border: '1px solid #CCC', background: 'white' }}
-                title="Body font (English / Tamil)"
+                title="Document font (100+ Free Fonts for Tamil, English, Maths)"
               >
-                {FONT_PRESETS.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.group}: {f.label}
-                  </option>
-                ))}
-                {customFonts.map((f) => (
-                  <option key={f.id} value={`custom:${f.family}`}>
-                    Custom: {f.name}
-                  </option>
-                ))}
+                <optgroup label="── Tamil Fonts (25+) ──">
+                  {FONT_PRESETS.filter((f) => f.group === 'Tamil').map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="── English Fonts (45+) ──">
+                  {FONT_PRESETS.filter((f) => f.group === 'English').map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="── Maths & Scientific Fonts (20+) ──">
+                  {FONT_PRESETS.filter((f) => f.group === 'Math').map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="── Mixed / Multilingual (12+) ──">
+                  {FONT_PRESETS.filter((f) => f.group === 'Mixed').map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </optgroup>
+                {customFonts.length > 0 && (
+                  <optgroup label="── Custom Imported Fonts ──">
+                    {customFonts.map((f) => (
+                      <option key={f.id} value={`custom:${f.family}`}>
+                        Custom: {f.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <Btn onClick={() => fileFontRef.current?.click()} className="px-2 py-1 text-[11px]">Import Font</Btn>
               <Btn onClick={() => exportFontSettings(fontPrefs())} className="px-2 py-1 text-[11px]">Export Settings</Btn>
@@ -2234,6 +2239,21 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                               >
                                 +
                               </button>
+
+                              <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  deleteBlock(block.id)
+                                }}
+                                className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 font-bold text-[10px] border border-rose-300 transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Delete / remove this section block"
+                              >
+                                🗑 Delete
+                              </button>
+
                               {toolbarPos && (
                                 <button
                                   type="button"
@@ -2300,35 +2320,66 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                             onDoubleClick={() => setSelectedBlockId(block.id)}
                           >
                             {block.text ? (
-                              block.type === 'heading2' && block.text.match(/^\s*(\d+(\.\d+)*)\.?\s+(.+)$/) ? (
+                              block.type === 'heading2' ? (
                                 (() => {
                                   const secM = block.text.match(/^\s*(\d+(\.\d+)*)\.?\s+(.+)$/)
-                                  if (!secM) return block.text
+                                  const secNum = secM ? secM[1] : ''
+                                  const secTitle = secM ? secM[3] : block.text
                                   return (
-                                    <div className="flex items-stretch my-2">
-                                      <div className="bg-black text-white font-extrabold px-2.5 py-1 text-[11px] rounded-l flex items-center shrink-0 font-sans">
-                                        {secM[1]}
-                                      </div>
+                                    <div className="flex items-stretch my-2 group/sec relative">
+                                      {secNum ? (
+                                        <div className="bg-black text-white font-extrabold px-2.5 py-1 text-[11px] rounded-l flex items-center shrink-0 font-sans">
+                                          {secNum}
+                                        </div>
+                                      ) : null}
                                       <div
-                                        className="bg-gray-200 text-black font-bold px-3 py-1 text-[12px] rounded-r flex-1 flex items-center"
+                                        className={`bg-gray-200 text-black font-bold px-3 py-1 text-[12px] ${secNum ? 'rounded-r' : 'rounded'} flex-1 flex items-center justify-between gap-2 pr-2`}
                                         style={{ fontFamily: "'Source Serif 4', Georgia, serif", lineHeight: 1.2 }}
-                                        dangerouslySetInnerHTML={{ __html: renderTextWithMath(secM[3]) }}
-                                      />
+                                      >
+                                        <span dangerouslySetInnerHTML={{ __html: renderTextWithMath(secTitle) }} />
+                                        <button
+                                          type="button"
+                                          onMouseDown={(e) => e.preventDefault()}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            deleteBlock(block.id)
+                                          }}
+                                          className="opacity-70 group-hover/sec:opacity-100 hover:opacity-100 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow flex items-center gap-1 cursor-pointer transition-all shrink-0"
+                                          title="Click to remove this Section column/pill"
+                                        >
+                                          🗑 Remove
+                                        </button>
+                                      </div>
                                     </div>
                                   )
                                 })()
-                              ) : block.type === 'heading3' && block.text.match(/^\s*(\d+(\.\d+)+)\.?\s+(.+)$/) ? (
+                              ) : block.type === 'heading3' ? (
                                 (() => {
                                   const secM = block.text.match(/^\s*(\d+(\.\d+)+)\.?\s+(.+)$/)
-                                  if (!secM) return block.text
+                                  const secNum = secM ? secM[1] : ''
+                                  const secTitle = secM ? secM[3] : block.text
                                   return (
-                                    <div className="flex items-center border-b-2 border-black pb-0.5 my-2">
-                                      <span className="font-extrabold text-[11px] text-black mr-2 font-sans">{secM[1]}</span>
-                                      <span
-                                        className="font-bold text-[11px] text-black"
-                                        style={{ fontFamily: "'Source Serif 4', Georgia, serif", lineHeight: 1.2 }}
-                                        dangerouslySetInnerHTML={{ __html: renderTextWithMath(secM[3]) }}
-                                      />
+                                    <div className="flex items-center justify-between border-b-2 border-black pb-0.5 my-2 group/subsec relative">
+                                      <div className="flex items-center">
+                                        {secNum && <span className="font-extrabold text-[11px] text-black mr-2 font-sans">{secNum}</span>}
+                                        <span
+                                          className="font-bold text-[11px] text-black"
+                                          style={{ fontFamily: "'Source Serif 4', Georgia, serif", lineHeight: 1.2 }}
+                                          dangerouslySetInnerHTML={{ __html: renderTextWithMath(secTitle) }}
+                                        />
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          deleteBlock(block.id)
+                                        }}
+                                        className="opacity-70 group-hover/subsec:opacity-100 hover:opacity-100 bg-rose-600 hover:bg-rose-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-0.5 cursor-pointer transition-all ml-2"
+                                        title="Remove Subsection"
+                                      >
+                                        🗑 Remove
+                                      </button>
                                     </div>
                                   )
                                 })()
