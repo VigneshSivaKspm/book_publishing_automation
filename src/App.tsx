@@ -3,6 +3,12 @@ import CommandPalette from './components/CommandPalette'
 import ExportModal from './components/ExportModal'
 import NewBookModal from './components/NewBookModal'
 import Sidebar from './components/Sidebar'
+import UserManagementPanel from './components/UserManagementPanel'
+import RoleDefinitionsPanel from './components/RoleDefinitionsPanel'
+import AuditLogsPanel from './components/AuditLogsPanel'
+import WorkflowsPanel from './components/WorkflowsPanel'
+import AutomationRulesPanel from './components/AutomationRulesPanel'
+import TemplatesPanel from './components/TemplatesPanel'
 import BookEditor from './pages/BookEditor'
 import Dashboard from './pages/Dashboard'
 import Editor from './pages/Editor'
@@ -458,6 +464,19 @@ export default function App() {
   const renderCurrentPage = () => {
     switch (activePage) {
       case 'dashboard':
+      case 'documents':
+        return (
+          <Dashboard
+            library={library}
+            onNavigate={setActivePage}
+            onExport={() => setShowExport(true)}
+            onCommand={() => setShowCommandPalette(true)}
+            onNewBook={() => setShowNewBook(true)}
+            onOpenBook={(book) => setActiveBook(book)}
+            onDeleteBook={handleDeleteBook}
+          />
+        )
+      case 'create-new':
         return (
           <Dashboard
             library={library}
@@ -477,6 +496,18 @@ export default function App() {
             onOpenBook={(book) => setActiveBook(book)}
           />
         )
+      case 'user-management':
+        return <UserManagementPanel />
+      case 'role-definitions':
+        return <RoleDefinitionsPanel />
+      case 'audit-logs':
+        return <AuditLogsPanel />
+      case 'workflows':
+        return <WorkflowsPanel />
+      case 'automation':
+        return <AutomationRulesPanel />
+      case 'templates':
+        return <TemplatesPanel />
       case 'settings':
         return (
           <Settings

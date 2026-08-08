@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Page } from '../types'
 
 interface SidebarProps {
@@ -8,181 +9,235 @@ interface SidebarProps {
   onNewBook: () => void
 }
 
-const navItems: { id: Page; label: string; hint: string; icon: React.ReactNode }[] = [
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    hint: 'Book Management',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9" />
-        <rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.55" />
-        <rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.55" />
-        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.35" />
-      </svg>
-    ),
-  },
-  {
-    id: 'editor',
-    label: 'Publishing Studio',
-    hint: '4-Stage Workflow',
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M10 2l4 4-8 8H2v-4l8-8z" stroke="currentColor" strokeWidth="1.4" fill="none" />
-      </svg>
-    ),
-  },
-]
+export default function Sidebar({
+  activePage,
+  onNavigate,
+  onExport,
+  onCommandPalette,
+  onNewBook,
+}: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(false)
 
-export default function Sidebar({ activePage, onNavigate, onExport, onCommandPalette, onNewBook }: SidebarProps) {
+  const isSettingsActive =
+    activePage === 'user-management' ||
+    activePage === 'role-definitions' ||
+    activePage === 'audit-logs' ||
+    activePage === 'settings'
+
   return (
     <aside
-      className="flex flex-col h-full flex-shrink-0"
+      className="flex flex-col h-full flex-shrink-0 transition-all duration-200"
       style={{
-        width: '236px',
-        background: 'var(--sidebar)',
-        borderRight: '1px solid var(--sidebar-border)',
+        width: collapsed ? '68px' : '256px',
+        background: '#F8FAFC',
+        borderRight: '1px solid #E2E8F0',
       }}
     >
-      <div
-        className="flex items-center h-[56px] px-4 flex-shrink-0"
-        style={{ borderBottom: '1px solid var(--sidebar-border)' }}
-      >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div
-            className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-            style={{ background: 'linear-gradient(135deg, #0E7490, #0D9488)' }}
-          >
-            F
+      {/* Brand Header & Sidebar Collapse Toggle */}
+      <div className="h-[60px] px-4 flex items-center justify-between border-b border-slate-200 flex-shrink-0 bg-white">
+        {!collapsed ? (
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-slate-900 text-white font-bold text-[13px] flex items-center justify-center flex-shrink-0">
+              DP
+            </div>
+            <div className="min-w-0">
+              <div className="text-[13px] font-bold tracking-tight text-slate-900 truncate">
+                DOC PROCESSOR
+              </div>
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
+                ADMINISTRATION
+              </div>
+            </div>
           </div>
-          <div className="min-w-0">
-            <div className="text-[14px] font-bold tracking-tight truncate" style={{ color: 'var(--ink)' }}>
-              Figma
+        ) : (
+          <div className="w-full flex justify-center">
+            <div className="w-8 h-8 rounded-lg bg-slate-900 text-white font-bold text-[12px] flex items-center justify-center">
+              DP
             </div>
-            <div className="text-[10px] font-medium" style={{ color: 'var(--primary)' }}>
-              Automated Publishing Suite
-            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="text-[10px] font-bold text-slate-600 hover:text-slate-900 px-1.5 py-1 rounded bg-slate-100 hover:bg-slate-200 transition-colors uppercase tracking-wider"
+          title={collapsed ? 'EXPAND SIDEBAR' : 'COLLAPSE SIDEBAR'}
+        >
+          {collapsed ? 'EXP' : 'HIDE'}
+        </button>
+      </div>
+
+      {/* Primary Action Buttons (Text Only) */}
+      {!collapsed && (
+        <div className="p-3 space-y-2 border-b border-slate-200 bg-slate-100/50">
+          <button
+            onClick={onNewBook}
+            className="w-full py-2.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[12px] font-bold tracking-wider uppercase transition-all shadow-sm active:scale-[0.98] text-center"
+          >
+            CREATE NEW DOCUMENT
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onCommandPalette}
+              className="flex-1 py-1.5 px-2.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-bold tracking-wider uppercase transition-colors border border-slate-300 text-center"
+            >
+              QUICK COMMAND (⌘K)
+            </button>
+            <button
+              onClick={onExport}
+              className="py-1.5 px-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold tracking-wider uppercase transition-colors shadow-sm text-center"
+            >
+              EXPORT PDF
+            </button>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="px-3 pt-3 pb-2 space-y-2">
-        <button
-          onClick={onNewBook}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-white text-[13px] font-semibold transition-all hover:opacity-95 active:scale-[0.98]"
-          style={{ background: 'linear-gradient(135deg, #0E7490, #0D9488)' }}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M7 1v12M1 7h12" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-          New Book
-        </button>
-        <button
-          onClick={onCommandPalette}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12px] transition-colors hover:bg-[var(--muted)]"
-          style={{ border: '1px solid var(--border)', color: 'var(--muted-foreground)' }}
-        >
-          <span className="flex items-center gap-2">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M9 9l1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-            Quick command
-          </span>
-          <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--muted)' }}>
-            ⌘K
-          </kbd>
-        </button>
-      </div>
-
-      <nav className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
-        {navItems.map((item) => {
-          const isActive = activePage === item.id
-          return (
+      {/* Main Navigation Links */}
+      <nav className="flex-1 overflow-y-auto p-3 space-y-5">
+        {/* Core Documents & Workflows Section */}
+        <div>
+          {!collapsed && (
+            <div className="px-2 mb-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              MAIN WORKSPACE
+            </div>
+          )}
+          <div className="space-y-1">
             <button
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              className="w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-left transition-all relative group"
-              style={{
-                background: isActive ? 'rgba(14, 116, 144, 0.1)' : 'transparent',
-                color: isActive ? 'var(--primary)' : 'var(--muted-foreground)',
-              }}
+              onClick={() => onNavigate('dashboard')}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'dashboard' || activePage === 'documents'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
             >
-              {isActive && (
-                <div
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r"
-                  style={{ background: 'var(--primary)' }}
-                />
-              )}
-              <span className="flex-shrink-0">{item.icon}</span>
-              <span className="flex-1 min-w-0">
-                <span
-                  className="block text-[13px] font-medium group-hover:text-[var(--ink)] transition-colors"
-                  style={{ color: isActive ? 'var(--primary)' : undefined }}
-                >
-                  {item.label}
-                </span>
-                <span className="block text-[10px] opacity-70">{item.hint}</span>
-              </span>
+              {collapsed ? 'DOCS' : 'Documents'}
             </button>
-          )
-        })}
+
+            <button
+              onClick={onNewBook}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'create-new'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
+            >
+              {collapsed ? 'NEW' : 'Create New'}
+            </button>
+
+            <button
+              onClick={() => onNavigate('workflows')}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'workflows'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
+            >
+              {collapsed ? 'WORK' : 'Workflows'}
+            </button>
+
+            <button
+              onClick={() => onNavigate('automation')}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'automation'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
+            >
+              {collapsed ? 'AUTO' : 'Automation Rules'}
+            </button>
+
+            <button
+              onClick={() => onNavigate('templates')}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'templates'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
+            >
+              {collapsed ? 'TMPL' : 'Templates'}
+            </button>
+          </div>
+        </div>
+
+        {/* SYSTEM SETTINGS Section */}
+        <div>
+          {!collapsed && (
+            <div className="px-2 mb-2 text-[10px] font-bold text-slate-900 uppercase tracking-widest flex items-center justify-between">
+              <span>SYSTEM SETTINGS</span>
+              <span className="text-[9px] bg-slate-200 text-slate-800 px-1.5 py-0.5 rounded">ADMIN</span>
+            </div>
+          )}
+          <div className="space-y-1 pl-1">
+            <button
+              onClick={() => onNavigate('user-management')}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'user-management'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
+            >
+              {collapsed ? 'USERS' : 'User Management'}
+            </button>
+
+            <button
+              onClick={() => onNavigate('role-definitions')}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'role-definitions'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
+            >
+              {collapsed ? 'ROLES' : 'Role Definitions'}
+            </button>
+
+            <button
+              onClick={() => onNavigate('audit-logs')}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'audit-logs'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
+            >
+              {collapsed ? 'LOGS' : 'Audit Logs'}
+            </button>
+
+            <button
+              onClick={() => onNavigate('settings')}
+              className={`w-full text-left py-2 px-3 rounded-lg text-[13px] font-semibold transition-all ${
+                activePage === 'settings'
+                  ? 'bg-slate-900 text-white shadow-sm font-bold'
+                  : 'text-slate-700 hover:bg-slate-200/60 hover:text-slate-900'
+              }`}
+            >
+              {collapsed ? 'CONF' : 'System Configuration'}
+            </button>
+          </div>
+        </div>
       </nav>
 
-      <div className="px-3 py-3">
-        <button
-          onClick={onExport}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all hover:bg-emerald-50"
-          style={{ color: 'var(--success)', border: '1px solid rgba(5,150,105,0.25)' }}
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path
-              d="M7 1v8M4 6l3 3 3-3M1 10v1a2 2 0 002 2h8a2 2 0 002-2v-1"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Export A4 · B5 · 8×8
-        </button>
-      </div>
-
-      <div className="px-2 pb-3" style={{ borderTop: '1px solid var(--sidebar-border)' }}>
-        <div className="pt-2 space-y-0.5">
-          <button
-            onClick={() => onNavigate('settings')}
-            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left hover:bg-[var(--muted)] transition-colors"
-            style={{ color: activePage === 'settings' ? 'var(--primary)' : 'var(--muted-foreground)' }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.4" />
-              <path
-                d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
-            <span className="text-[13px] font-medium">Settings</span>
-          </button>
-          <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl">
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #0E7490, #134E4A)' }}
-            >
+      {/* Footer Profile & Admin Client Info */}
+      <div className="p-3 border-t border-slate-200 bg-white">
+        {!collapsed ? (
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-slate-900 text-white font-bold text-[12px] flex items-center justify-center flex-shrink-0">
               K
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-semibold truncate" style={{ color: 'var(--ink)' }}>
-                Karthikeyan
+              <div className="text-[12px] font-bold text-slate-900 truncate">
+                Karthikeyan Admin
               </div>
-              <div className="text-[10px]" style={{ color: 'var(--muted-foreground)' }}>
-                Publishing Lead
+              <div className="text-[10px] text-slate-500 font-semibold truncate">
+                Administrator Client
               </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex justify-center">
+            <div className="w-8 h-8 rounded-full bg-slate-900 text-white font-bold text-[11px] flex items-center justify-center">
+              K
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   )

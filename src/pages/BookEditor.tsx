@@ -1148,7 +1148,6 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
           className="flex-1 max-w-[280px] bg-transparent text-white text-[13px] font-semibold outline-none truncate px-2"
         />
         <div className="flex items-center gap-1.5 bg-white/15 px-3 py-1 rounded-full text-[11px] font-semibold text-white border border-white/20 shadow-inner" title="Publication format is locked once created">
-          <span className="text-[11px] opacity-80">🔒</span>
           <span>{book.bookMode === 'questions-only' ? 'Syllabus' : 'Question Bank'}</span>
         </div>
         <span className="text-[11px] text-white/70 hidden md:inline ml-auto">{busy ? (ocrPct != null ? `Scanning ${ocrPct}%` : 'Working…') : 'Saved'}</span>
@@ -1162,17 +1161,11 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
         className="flex-shrink-0 flex items-center gap-2 px-3 py-2.5 flex-wrap"
         style={{ background: '#FAFAFA', borderBottom: '1px solid #E0E0E0' }}
       >
-        <Btn onClick={undo} disabled={!canUndo} className="px-2.5 py-1.5 text-[12px] flex items-center gap-1.5 font-medium" title="Undo (Ctrl+Z)">
-          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-            <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
-          </svg>
-          <span>Undo</span>
+        <Btn onClick={undo} disabled={!canUndo} className="px-2.5 py-1.5 text-[12px] font-bold uppercase tracking-wider" title="Undo (Ctrl+Z)">
+          Undo
         </Btn>
-        <Btn onClick={redo} disabled={!canRedo} className="px-2.5 py-1.5 text-[12px] flex items-center gap-1.5 font-medium" title="Redo (Ctrl+Y)">
-          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-            <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22l2.37.78c1.05-3.19 4.06-5.5 7.59-5.5 1.96 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
-          </svg>
-          <span>Redo</span>
+        <Btn onClick={redo} disabled={!canRedo} className="px-2.5 py-1.5 text-[12px] font-bold uppercase tracking-wider" title="Redo (Ctrl+Y)">
+          Redo
         </Btn>
         <Sep />
         <Btn onClick={() => addBlock('heading1')} className="px-2.5 py-1.5 text-[12px]">
@@ -1197,11 +1190,11 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
           </Btn>
         ))}
         <Sep />
-        <Btn onClick={() => setShowHfModal(true)} variant="accent" className="px-2.5 py-1.5 text-[12px] font-semibold">
-          🎨 Header &amp; Watermark Studio
+        <Btn onClick={() => setShowHfModal(true)} variant="accent" className="px-2.5 py-1.5 text-[12px] font-bold uppercase tracking-wider">
+          Header & Watermark Studio
         </Btn>
-        <Btn onClick={handleAiSolveAnswers} disabled={busy} variant="accent" className="px-2.5 py-1.5 text-[12px] font-semibold">
-          ✨ AI Solve Answers
+        <Btn onClick={handleAiSolveAnswers} disabled={busy} variant="accent" className="px-2.5 py-1.5 text-[12px] font-bold uppercase tracking-wider">
+          AI Solve Answers
         </Btn>
         <Sep />
         <CopyControlBar book={book} activePage={activePage} activePageRef={activePageRef} bodyContentRef={bodyContentRef} onNotify={showToast} />
@@ -1210,27 +1203,25 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
           variant="docScan"
           onClick={() => fileDocRef.current?.click()}
           disabled={busy}
-          className="px-4 py-2.5 text-[13px] font-bold flex items-center gap-1.5 shadow-sm"
+          className="px-4 py-2 text-[12px] font-bold uppercase tracking-wider shadow-sm"
           title="Scan PDF or Document file → convert to questions & blocks"
         >
-          <span className="text-[15px] leading-none">📄</span>
-          AI Doc Scan
+          DOC SCAN
         </Btn>
         <Btn
           variant="scan"
           onClick={() => fileOcrRef.current?.click()}
           disabled={busy}
-          className="px-4 py-2.5 text-[13px] font-semibold flex items-center gap-1.5"
+          className="px-4 py-2 text-[12px] font-bold uppercase tracking-wider shadow-sm"
           title="Scan question paper photo → questions, choices & answers"
         >
-          <span className="text-[16px] leading-none">⬚</span>
-          AI Scan Image
+          IMAGE SCAN
         </Btn>
-        <Btn variant="accent" onClick={runAlign} disabled={busy} className="px-3 py-2 text-[12px] font-semibold">
-          Auto Align
+        <Btn variant="accent" onClick={runAlign} disabled={busy} className="px-3 py-2 text-[12px] font-bold uppercase tracking-wider">
+          ALIGN
         </Btn>
-        <Btn variant="primary" onClick={runCompile} disabled={busy} className="px-3 py-2 text-[12px] font-semibold">
-          Compile Book
+        <Btn variant="primary" onClick={runCompile} disabled={busy} className="px-3 py-2 text-[12px] font-bold uppercase tracking-wider">
+          COMPILE
         </Btn>
       </div>
 

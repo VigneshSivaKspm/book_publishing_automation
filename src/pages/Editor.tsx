@@ -285,26 +285,18 @@ export default function Editor({ onNavigate, onExport, onOpenBook, pendingAction
           <button
             onClick={undo}
             disabled={histIdx <= 0}
-            className="px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-[12px] font-semibold hover:bg-[var(--muted)] disabled:opacity-30 border border-slate-200 shadow-sm transition-colors"
-            style={{ color: 'var(--muted-foreground)' }}
+            className="px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider hover:bg-[var(--muted)] disabled:opacity-30 border border-slate-200 shadow-sm transition-colors text-slate-800"
             title="Undo (Ctrl+Z)"
           >
-            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-              <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
-            </svg>
-            <span>Undo</span>
+            Undo
           </button>
           <button
             onClick={redo}
             disabled={histIdx >= history.length - 1}
-            className="px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-[12px] font-semibold hover:bg-[var(--muted)] disabled:opacity-30 border border-slate-200 shadow-sm transition-colors"
-            style={{ color: 'var(--muted-foreground)' }}
+            className="px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider hover:bg-[var(--muted)] disabled:opacity-30 border border-slate-200 shadow-sm transition-colors text-slate-800"
             title="Redo (Ctrl+Y)"
           >
-            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-              <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22l2.37.78c1.05-3.19 4.06-5.5 7.59-5.5 1.96 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
-            </svg>
-            <span>Redo</span>
+            Redo
           </button>
         </div>
 
@@ -339,8 +331,7 @@ export default function Editor({ onNavigate, onExport, onOpenBook, pendingAction
 
         <button
           onClick={renumber}
-          className="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold"
-          style={{ background: 'rgba(14,116,144,0.08)', color: 'var(--primary)' }}
+          className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-wider border border-slate-300 bg-slate-100 text-slate-800"
         >
           Auto-number
         </button>
@@ -359,12 +350,10 @@ export default function Editor({ onNavigate, onExport, onOpenBook, pendingAction
             const newText = updatedBlocks.map((b: { text: string }) => b.text).join('\n\n')
             commit(newText, { toast: `AI solved ${solvedCount} question answers!` })
           }}
-          className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-white flex items-center gap-1.5 shadow-sm"
-          style={{ background: 'linear-gradient(135deg, #4F46E5, #7C3AED)' }}
+          className="px-3 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-wider text-white shadow-sm bg-slate-900 hover:bg-slate-800"
           title="AI guesses and solves all unanswered questions automatically"
         >
-          <span>✨</span>
-          <span>AI Solve Answers</span>
+          AI Solve Answers
         </button>
 
         <button

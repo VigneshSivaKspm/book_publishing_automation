@@ -1,11 +1,54 @@
 export type Page =
   | 'dashboard'
+  | 'documents'
+  | 'create-new'
+  | 'workflows'
+  | 'automation'
+  | 'templates'
+  | 'user-management'
+  | 'role-definitions'
+  | 'audit-logs'
+  | 'settings'
   | 'editor'
   | 'book-editor'
-  | 'settings'
-
 
 export type NavHandler = (page: Page) => void
+
+export type UserRole = 'Administrator' | 'Editor' | 'Viewer' | 'Document Specialist' | 'Audit Manager'
+
+export interface UserAccount {
+  id: string
+  name: string
+  email: string
+  role: UserRole
+  department: string
+  status: 'Active' | 'Inactive'
+  lastActive: string
+  createdDate: string
+  permissions: string[]
+}
+
+export interface SystemRole {
+  id: string
+  name: string
+  description: string
+  userCount: number
+  isSystem: boolean
+  permissions: string[]
+}
+
+export interface AuditLogEntry {
+  id: string
+  timestamp: string
+  user: string
+  userEmail: string
+  role: string
+  action: string
+  category: 'User Management' | 'Role Modified' | 'Document Processing' | 'System Security' | 'Workflow Execution'
+  details: string
+  ipAddress: string
+  status: 'SUCCESS' | 'WARNING' | 'FAILURE'
+}
 
 export type PaperSize = 'A4' | 'B5' | '8×8'
 
