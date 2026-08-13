@@ -10,7 +10,7 @@ import {
 import type { BookDocument, BookPage, ContentBlock, PaperSize } from '../types'
 import { PAPER_DIMENSIONS, createEmptyPage, formatPageNumber, uid } from '../types'
 import { autoCorrectBook, autoCorrectPage, estimateBookStats, reflowBookOverflow } from '../lib/bookAi'
-import { callGroqDocText, ocrImageToBlocks, parsePdfFile, parseMultiPageDocument, readFileAsDataUrl } from '../lib/ocr'
+import { callOpenAiDocText, ocrImageToBlocks, parsePdfFile, parseMultiPageDocument, readFileAsDataUrl } from '../lib/ocr'
 import { exportBookPrintable } from '../lib/printExport'
 import { loadKatex, renderTextWithMath } from '../lib/mathEngine'
 import HeaderFooterModal from '../components/HeaderFooterModal'
@@ -952,9 +952,9 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
         const slideText = slideTexts[i]
         let processedText = slideText
         try {
-          processedText = await callGroqDocText(slideText)
+          processedText = await callOpenAiDocText(slideText)
         } catch (err) {
-          console.warn(`Groq Doc Text fallback for slide ${i + 1}:`, err)
+          console.warn(`OpenAI Doc Text fallback for slide ${i + 1}:`, err)
         }
 
         const structured = structureExamText(processedText)

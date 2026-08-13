@@ -2,8 +2,15 @@ import { createWorker, type Worker } from 'tesseract.js'
 import { structureExamText } from './mcqEngine'
 import type { ContentBlock } from '../types'
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || (typeof window !== 'undefined' ? localStorage.getItem('GROQ_API_KEY') || '' : '')
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+export function getOpenAiApiKey(): string {
+  if (typeof window !== 'undefined') {
+    const localKey = localStorage.getItem('OPENAI_API_KEY')
+    if (localKey && localKey.trim()) return localKey.trim()
+  }
+  return import.meta.env.VITE_OPENAI_API_KEY || ''
+}
+
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 
 let workerPromise: Promise<Worker> | null = null
 
@@ -29,16 +36,21 @@ export interface OcrResult {
   answered: number
 }
 
-/** Call Groq Vision API (LLaMA 3.2 Vision) for ultra-fast high accuracy image question scanning */
-export async function callGroqVision(imageDataUrl: string): Promise<string> {
-  const res = await fetch(GROQ_URL, {
+/** Call OpenAI ChatGPT Vision API (gpt-4o) for ultra-fast high accuracy image question scanning */
+export async function callOpenAiVision(imageDataUrl: string): Promise<string> {
+  const apiKey = getOpenAiApiKey()
+  if (!apiKey) {
+    throw new Error('OpenAI ChatGPT API key is not configured. Please add VITE_OPENAI_API_KEY to your .env file or set it in System Settings.')
+  }
+
+  const res = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.2-11b-vision-preview',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'user',
@@ -71,23 +83,28 @@ CRITICAL BILINGUAL RULES:
 
   if (!res.ok) {
     const errText = await res.text()
-    throw new Error(`Groq Vision error: ${res.status} ${errText}`)
+    throw new Error(`OpenAI Vision error: ${res.status} ${errText}`)
   }
 
   const data = await res.json()
   return data.choices?.[0]?.message?.content || ''
 }
 
-/** Call Groq 70B AI model for document text structure & question generation */
-export async function callGroqDocText(rawText: string): Promise<string> {
-  const res = await fetch(GROQ_URL, {
+/** Call OpenAI ChatGPT AI model (gpt-4o) for document text structure & question generation */
+export async function callOpenAiDocText(rawText: string): Promise<string> {
+  const apiKey = getOpenAiApiKey()
+  if (!apiKey) {
+    throw new Error('OpenAI ChatGPT API key is not configured. Please add VITE_OPENAI_API_KEY to your .env file or set it in System Settings.')
+  }
+
+  const res = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
@@ -106,19 +123,19 @@ export async function callGroqDocText(rawText: string): Promise<string> {
 
   if (!res.ok) {
     const errText = await res.text()
-    throw new Error(`Groq Text error: ${res.status} ${errText}`)
+    throw new Error(`OpenAI Text error: ${res.status} ${errText}`)
   }
 
   const data = await res.json()
   return data.choices?.[0]?.message?.content || ''
 }
 
-/** AI OCR → MCQ-aware structured blocks powered by Groq AI Vision + Tesseract Fallback */
+/** AI OCR → MCQ-aware structured blocks powered by OpenAI AI Vision + Tesseract Fallback */
 export async function ocrImageToBlocks(
   source: File | Blob | string,
   onProgress?: (p: OcrProgress) => void,
 ): Promise<OcrResult> {
-  onProgress?.({ status: 'Connecting to Groq AI Vision…', progress: 0.15 })
+  onProgress?.({ status: 'Connecting to OpenAI Vision…', progress: 0.15 })
 
   let text = ''
   let confidence = 95
@@ -133,11 +150,11 @@ export async function ocrImageToBlocks(
       dataUrl = await readFileAsDataUrl(new File([source], 'scan.jpg', { type: source.type }))
     }
 
-    onProgress?.({ status: 'Groq Vision AI analyzing questions & options…', progress: 0.45 })
-    text = await callGroqVision(dataUrl)
+    onProgress?.({ status: 'OpenAI Vision AI analyzing questions & options…', progress: 0.45 })
+    text = await callOpenAiVision(dataUrl)
     confidence = 98
   } catch (err) {
-    console.warn('Groq Vision AI fallback to Tesseract:', err)
+    console.warn('OpenAI Vision AI fallback to Tesseract:', err)
     onProgress?.({ status: 'Tesseract OCR reading fallback…', progress: 0.5 })
     const worker = await getWorker()
     const result = await worker.recognize(source)

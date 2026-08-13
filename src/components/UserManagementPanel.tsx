@@ -123,7 +123,7 @@ export default function UserManagementPanel() {
   }
 
   const handleToggleStatus = (u: UserAccount) => {
-    const nextStatus = u.status === 'Active' ? 'Inactive' : 'Active'
+    const nextStatus: 'Active' | 'Inactive' = u.status === 'Active' ? 'Inactive' : 'Active'
     const updated = users.map((user) => (user.id === u.id ? { ...user, status: nextStatus } : user))
     persistUsers(updated)
     showToast(`User "${u.name}" is now ${nextStatus}.`)

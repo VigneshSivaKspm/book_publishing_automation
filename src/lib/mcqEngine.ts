@@ -220,9 +220,15 @@ export function inferAnswer(mcq: ParsedMcq): string | undefined {
   return undefined
 }
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || (typeof window !== 'undefined' ? localStorage.getItem('GROQ_API_KEY') || '' : '')
+function getOpenAiApiKey(): string {
+  if (typeof window !== 'undefined') {
+    const localKey = localStorage.getItem('OPENAI_API_KEY')
+    if (localKey && localKey.trim()) return localKey.trim()
+  }
+  return import.meta.env.VITE_OPENAI_API_KEY || ''
+}
 
-/** Use Groq 70B AI to solve and auto-guess correct answers for questions */
+/** Use OpenAI ChatGPT AI (gpt-4o-mini) to solve and auto-guess correct answers for questions */
 export async function aiSolveUnansweredMcqs(
   blocks: ContentBlock[],
 ): Promise<{ updatedBlocks: ContentBlock[]; solvedCount: number }> {
@@ -234,20 +240,25 @@ export async function aiSolveUnansweredMcqs(
 
   if (unanswered.length > 0) {
     try {
+      const apiKey = getOpenAiApiKey()
+      if (!apiKey) {
+        console.warn('OpenAI ChatGPT API Key is not configured.')
+      }
+
       const qList = unanswered.map((b, i) => `${i + 1}. ${b.text}`).join('\n\n')
       const prompt = `Solve these multiple choice questions and identify the correct option (A, B, C, D, or E) for each.
 Return strictly valid JSON format like: {"1": "A", "2": "C", ...}
 Questions:
 ${qList.slice(0, 8000)}`
 
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${GROQ_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: 'gpt-4o-mini',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           response_format: { type: 'json_object' },
@@ -287,7 +298,7 @@ ${qList.slice(0, 8000)}`
         return { updatedBlocks: nextBlocks, solvedCount }
       }
     } catch (err) {
-      console.warn('Groq AI answer solving fallback:', err)
+      console.warn('OpenAI ChatGPT AI answer solving fallback:', err)
     }
   }
 
