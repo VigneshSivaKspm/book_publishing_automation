@@ -1,6 +1,7 @@
 import type { BookDocument, BookPage, ContentBlock } from '../types'
 import { PAPER_DIMENSIONS, uid } from '../types'
 import { structureExamText } from './mcqEngine'
+import { addLog } from './logger'
 
 /** Production AI layout & correction engine — deterministic, fast for 1000+ pages. */
 
@@ -45,6 +46,16 @@ export function cleanText(raw: string): { text: string; fixes: number } {
     return `${a}I${b}`
   })
   text = text.replace(OCR_O_AS_0, (m) => m) // keep identity; flag handled elsewhere
+
+  if (fixes > 0) {
+    addLog({
+      category: 'correction',
+      level: 'info',
+      title: 'Text Cleaned & Corrected',
+      details: `Corrected ${fixes} typography/OCR artifacts (quotes, dashes, double spaces, OCR l/1).`,
+    })
+  }
+
   return { text: text.trimEnd(), fixes }
 }
 
@@ -97,11 +108,12 @@ export function autoAlignBlock(block: ContentBlock): ContentBlock {
 export function autoCorrectPage(
   page: BookPage,
   startMcqNum = 1,
+  mode: 'qa' | 'document' = 'qa',
 ): { page: BookPage; blocksFixed: number; headingsDetected: number; spacingFixes: number; emptyRemoved: number } {
   let blocksFixed = 0
   let headingsDetected = 0
   let spacingFixes = 0
-  let emptyRemoved = 0
+  const emptyRemoved = 0
 
   const images = page.blocks.filter((b) => b.type === 'image' && b.imageUrl)
   const textBlocks = page.blocks.filter((b) => b.type !== 'image' && b.text.trim())
@@ -109,6 +121,24 @@ export function autoCorrectPage(
   if (textBlocks.length === 0) {
     const defaultBlocks = images.length > 0 ? images : [{ id: uid('blk'), type: 'paragraph' as const, text: '', align: 'justify' as const }]
     return { page: { ...page, blocks: defaultBlocks }, blocksFixed: 0, headingsDetected: 0, spacingFixes: 0, emptyRemoved: 0 }
+  }
+
+  // Syllabus / study material: only clean & align, never re-parse as MCQs.
+  if (mode === 'document') {
+    const nextBlocks = page.blocks.map((b) => {
+      if (b.type === 'image' || b.type === 'table' || b.type === 'mcq') return b
+      const fixed = autoAlignBlock(b)
+      if (fixed.type.startsWith('heading')) headingsDetected++
+      blocksFixed++
+      return fixed
+    })
+    return {
+      page: { ...page, blocks: nextBlocks },
+      blocksFixed,
+      headingsDetected,
+      spacingFixes: blocksFixed,
+      emptyRemoved,
+    }
   }
 
   // Combine raw page text to re-parse and align questions
@@ -153,8 +183,9 @@ export function autoCorrectBook(book: BookDocument): { book: BookDocument; repor
   let ocrFixes = 0
   let emptyRemoved = 0
 
+  const mode: 'qa' | 'document' = book.bookMode === 'questions-only' ? 'document' : 'qa'
   const pages = book.pages.map((page) => {
-    const result = autoCorrectPage(page)
+    const result = autoCorrectPage(page, 1, mode)
     if (result.blocksFixed + result.emptyRemoved > 0) pagesTouched++
     blocksFixed += result.blocksFixed
     headingsDetected += result.headingsDetected
@@ -175,6 +206,14 @@ export function autoCorrectBook(book: BookDocument): { book: BookDocument; repor
     emptyRemoved,
     summary: `AI corrected ${blocksFixed} blocks across ${pagesTouched} pages · ${headingsDetected} headings detected · ${emptyRemoved} empty blocks removed`,
   }
+
+  addLog({
+    category: 'correction',
+    level: 'success',
+    title: 'Full Book AI Correction Executed',
+    details: report.summary,
+    meta: report as any,
+  })
 
   return {
     book: {

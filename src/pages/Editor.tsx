@@ -412,8 +412,7 @@ export default function Editor({ onNavigate, onExport, onOpenBook, pendingAction
         )}
         <button
           onClick={onExport}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-[12px] font-semibold text-white"
-          style={{ background: 'linear-gradient(135deg, #0E7490, #0D9488)' }}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-none text-[12px] font-semibold text-white bg-slate-900 hover:bg-slate-800 border border-slate-900"
         >
           Export {activeSize}
         </button>

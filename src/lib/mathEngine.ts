@@ -143,11 +143,11 @@ export function renderMathHtml(tex: string, displayMode: boolean): string {
       /* use readable */
     }
   }
+  // Fallback: readable Unicode now, but keep the raw TeX so an export/print page
+  // can upgrade it to real KaTeX once the library loads in the browser.
   const readable = texToReadable(tex)
-  if (displayMode) {
-    return `<span class="math-display">${escapeHtml(readable)}</span>`
-  }
-  return `<span class="math-inline">${escapeHtml(readable)}</span>`
+  const cls = displayMode ? 'math-display' : 'math-inline'
+  return `<span class="${cls}" data-tex="${escapeHtml(tex)}">${escapeHtml(readable)}</span>`
 }
 
 function escapeHtml(s: string): string {

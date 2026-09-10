@@ -252,7 +252,10 @@ export default function HeaderFooterModal({
                       </button>
                     </div>
                   ) : (
-                    <span className="text-[11px] text-slate-500">Using default Study Circle Emblem Seal</span>
+                    <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded text-[11px] font-semibold text-slate-700">
+                      <img src="/logo.jpeg" alt="Logo" className="w-4 h-4 rounded object-cover" />
+                      <span>Using Default Publisher Logo (/logo.jpeg)</span>
+                    </div>
                   )}
                 </div>
 

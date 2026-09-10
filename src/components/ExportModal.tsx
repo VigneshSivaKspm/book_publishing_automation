@@ -197,16 +197,11 @@ export default function ExportModal({ open = true, onClose }: ExportModalProps) 
             <button
               onClick={handleGenerate}
               disabled={generating}
-              className="w-full py-3.5 rounded-xl text-[14px] font-bold text-white flex items-center justify-center gap-2"
-              style={{
-                background: generating
-                  ? 'rgba(14,116,144,0.55)'
-                  : 'linear-gradient(135deg, #0E7490, #0D9488)',
-              }}
+              className="w-full py-3 text-[13px] font-bold text-white rounded-none bg-slate-900 hover:bg-slate-800 border border-slate-900 flex items-center justify-center gap-2"
             >
               {generating ? (
                 <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   Scaling layout & generating…
                 </>
               ) : (

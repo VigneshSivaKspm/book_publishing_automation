@@ -10,16 +10,21 @@ import {
 import type { BookDocument, BookPage, ContentBlock, PaperSize } from '../types'
 import { PAPER_DIMENSIONS, createEmptyPage, formatPageNumber, uid } from '../types'
 import { autoCorrectBook, autoCorrectPage, estimateBookStats, reflowBookOverflow } from '../lib/bookAi'
+import { structureDocumentText, parseMarkdownTable } from '../lib/docStructure'
+import { extractChapterMeta } from '../lib/chapterMeta'
 import { callOpenAiDocText, ocrImageToBlocks, parsePdfFile, parseMultiPageDocument, readFileAsDataUrl } from '../lib/ocr'
 import { exportBookPrintable } from '../lib/printExport'
 import { loadKatex, renderTextWithMath } from '../lib/mathEngine'
 import HeaderFooterModal from '../components/HeaderFooterModal'
 import CopyControlBar from '../components/CopyControlBar'
+import ConsoleLogsModal from '../components/ConsoleLogsModal'
 import {
   aiSolveUnansweredMcqs,
+  applyAnswerKeyToBlocks,
   emptyMcqTemplate,
   generateAnswerKey,
   generateMcqBank,
+  isMcqOptionLine,
   nextMcqNumber,
   structureExamText,
   stripInlineAnswerTags,
@@ -71,9 +76,9 @@ function normalizeBook(b: BookDocument): BookDocument {
     ...p,
     blocks: p.blocks.map((blk) => {
       if (blk.type === 'mcq') {
-        const extractedAns = blk.answer || blk.text.match(/\[✓\s*([A-E])\]/i)?.[1] || 'A'
+        const extractedAns = (blk.answer || blk.text.match(/\[✓\s*([A-E])\]/i)?.[1] || '').toUpperCase()
         const cleanText = stripInlineAnswerTags(blk.text)
-        return { ...blk, answer: extractedAns.toUpperCase(), text: cleanText }
+        return { ...blk, answer: extractedAns, text: cleanText }
       }
       return blk
     }),
@@ -110,23 +115,21 @@ function Btn({
 }) {
   const styles: Record<string, React.CSSProperties> = {
     ghost: {
-      background: active ? 'rgba(14, 116, 144, 0.1)' : 'transparent',
-      color: active ? '#0E7490' : '#333',
-      border: active ? '1px solid rgba(14, 116, 144, 0.3)' : '1px solid transparent',
+      background: active ? '#F1F5F9' : 'transparent',
+      color: active ? '#0F172A' : '#334155',
+      border: active ? '1px solid #94A3B8' : '1px solid #CBD5E1',
     },
-    primary: { background: 'linear-gradient(135deg, #0E7490, #0D9488)', color: 'white', border: 'none' },
-    accent: { background: 'rgba(14, 116, 144, 0.08)', color: '#0E7490', border: '1px solid rgba(14, 116, 144, 0.25)' },
+    primary: { background: '#0F172A', color: 'white', border: '1px solid #0F172A' },
+    accent: { background: '#F8FAFC', color: '#0F172A', border: '1px solid #CBD5E1' },
     scan: {
-      background: 'linear-gradient(135deg, #0E7490, #0D9488)',
+      background: '#0F172A',
       color: 'white',
-      border: 'none',
-      boxShadow: '0 2px 6px rgba(14, 116, 144, 0.28)',
+      border: '1px solid #0F172A',
     },
     docScan: {
-      background: 'linear-gradient(135deg, #059669, #10B981)',
+      background: '#1E293B',
       color: 'white',
-      border: 'none',
-      boxShadow: '0 2px 6px rgba(5, 150, 105, 0.35)',
+      border: '1px solid #1E293B',
     },
   }
   return (
@@ -135,7 +138,7 @@ function Btn({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className={`rounded font-medium disabled:opacity-40 whitespace-nowrap transition-opacity hover:opacity-90 ${className}`}
+      className={`rounded-none font-medium disabled:opacity-40 whitespace-nowrap transition-colors hover:bg-slate-100 ${className}`}
       style={styles[variant]}
     >
       {children}
@@ -156,11 +159,14 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
   const [pagesOpen, setPagesOpen] = useState(true)
   const [busy, setBusy] = useState(false)
   const [ocrPct, setOcrPct] = useState<number | null>(null)
+  const [ocrStatusText, setOcrStatusText] = useState<string>('Processing document...')
+  const [ocrFileName, setOcrFileName] = useState<string>('')
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
   const [zoom, setZoom] = useState(0.7)
   const [tips, setTips] = useState<string[]>([])
   const [showHfModal, setShowHfModal] = useState(false)
+  const [showConsoleModal, setShowConsoleModal] = useState(false)
   const [isAnswerKeySelected, setIsAnswerKeySelected] = useState(false)
   const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(null)
   const savedSelectionBlocksRef = useRef<string[]>([])
@@ -315,9 +321,9 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
       p.blocks.forEach((b) => {
         if (b.type === 'mcq') {
           seq++
-          const num = b.text.match(/^(\d+)/)?.[1] || String(seq)
-          const ans = b.answer || b.text.match(/\[✓\s*([A-E])\]/i)?.[1] || 'A'
-          items.push({ blockId: b.id, num, answer: ans.toUpperCase() })
+          const num = b.text.match(/^\s*(\d+)/)?.[1] || String(seq)
+          const ans = (b.answer || b.text.match(/\[✓\s*([A-E])\]/i)?.[1] || '').toUpperCase()
+          items.push({ blockId: b.id, num, answer: ans || '–' })
         }
       })
     })
@@ -599,7 +605,8 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
       heading2: '1.1 Section',
       heading3: '1.1.1 Subsection',
       math: '$$a^2 + b^2 = c^2$$',
-      list: 'List item',
+      list: '- List item',
+      table: '| Column 1 | Column 2 |\n| --- | --- |\n| Cell A | Cell B |',
       paragraph: '',
     }
     addBlocks([
@@ -684,13 +691,20 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
         })
       }
 
-      const { page: alignedPage } = autoCorrectPage(activePage, startMcqNum)
-      const { updatedBlocks, solvedCount } = await aiSolveUnansweredMcqs(alignedPage.blocks)
+      const isSyllabus = book.bookMode === 'questions-only'
+      const { page: alignedPage } = autoCorrectPage(activePage, startMcqNum, isSyllabus ? 'document' : 'qa')
 
-      const finalPage = { ...alignedPage, blocks: updatedBlocks }
-      updatePage(activePage.id, () => finalPage, {
-        msg: `✓ Page ${activePage.number} auto-aligned! (${finalPage.blocks.length} blocks · AI solved ${solvedCount} answers)`,
-      })
+      if (isSyllabus) {
+        updatePage(activePage.id, () => alignedPage, {
+          msg: `✓ Page ${activePage.number} auto-aligned & cleaned (${alignedPage.blocks.length} blocks)`,
+        })
+      } else {
+        const { updatedBlocks, solvedCount } = await aiSolveUnansweredMcqs(alignedPage.blocks)
+        const finalPage = { ...alignedPage, blocks: updatedBlocks }
+        updatePage(activePage.id, () => finalPage, {
+          msg: `✓ Page ${activePage.number} auto-aligned! (${finalPage.blocks.length} blocks · AI solved ${solvedCount} answers)`,
+        })
+      }
     } catch {
       showToast('Page auto-align failed')
     } finally {
@@ -904,26 +918,77 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
       setTips((t) => [`Image on page ${activePage.number} — keep it under the related heading`, ...t].slice(0, 5))
       return
     }
+    const isSyllabus = book.bookMode === 'questions-only'
     setBusy(true)
-    setOcrPct(0)
+    setOcrFileName(file.name)
+    setOcrStatusText('Scanning image with ChatGPT Vision (gpt-4o)...')
+    setOcrPct(10)
     try {
-      const result = await ocrImageToBlocks(file, (p) => setOcrPct(Math.round(p.progress * 80)))
-      setOcrPct(90)
-      const { updatedBlocks, solvedCount } = await aiSolveUnansweredMcqs(result.blocks)
-      setOcrPct(100)
-
-      updatePage(
-        activePage.id,
-        (p) => ({
-          ...p,
-          blocks: [...p.blocks.filter((b) => b.text.trim() || b.imageUrl), ...updatedBlocks],
-        }),
-        {
-          msg:
-            result.mcqCount > 0
-              ? `Scanned ${result.mcqCount} questions · AI solved ${solvedCount} answers & built Answer Key!`
-              : `Scanned ${result.blocks.length} blocks`,
+      const result = await ocrImageToBlocks(
+        file,
+        (p) => {
+          const pct = Math.round(p.progress * 65)
+          setOcrPct(pct)
+          if (pct > 25) setOcrStatusText(isSyllabus ? 'Extracting headings, lists, tables & formulas...' : 'Extracting questions, Tamil text & math formulas...')
         },
+        { mode: isSyllabus ? 'document' : 'qa' },
+      )
+      setOcrPct(75)
+
+      // Case A: the scanned image is an ANSWER KEY grid — apply it across the whole book.
+      if (!isSyllabus && result.answerKey && Object.keys(result.answerKey).length > 0) {
+        const key = result.answerKey
+        let applied = 0
+        const nextPages = book.pages.map((pg) => {
+          const r = applyAnswerKeyToBlocks(pg.blocks, key)
+          applied += r.applied
+          return { ...pg, blocks: r.blocks }
+        })
+        setOcrPct(100)
+        commit({ ...book, pages: nextPages }, `Applied ${applied} answers from the scanned answer key`)
+        return
+      }
+
+      let outBlocks = result.blocks
+      let solvedCount = 0
+      if (!isSyllabus) {
+        const unanswered = outBlocks.filter((b) => b.type === 'mcq' && !b.answer).length
+        if (unanswered > 0) {
+          setOcrStatusText('AI solving unanswered questions…')
+          const solved = await aiSolveUnansweredMcqs(result.blocks)
+          outBlocks = solved.updatedBlocks
+          solvedCount = solved.solvedCount
+        }
+      }
+      // Header badge from the scanned page header.
+      const cm = result.chapterMeta
+      if (isSyllabus && cm && !cm.title && outBlocks[0]?.type === 'heading1') {
+        cm.title = outBlocks[0].text
+        outBlocks = outBlocks.slice(1)
+      }
+      const nextHf = { ...book.headerFooter }
+      if (cm?.title) {
+        nextHf.chapterTitle = cm.title
+        nextHf.middleRightText = cm.title
+        if (!book.headerFooter.headerLeft || book.headerFooter.headerLeft === book.title) nextHf.headerLeft = cm.title
+      }
+      if (cm?.number) nextHf.chapterNumber = cm.number
+
+      setOcrPct(95)
+      setOcrStatusText('Finalizing page layout...')
+
+      const finalBlocks = [...activePage.blocks.filter((b) => b.text.trim() || b.imageUrl), ...outBlocks]
+      commit(
+        {
+          ...book,
+          headerFooter: nextHf,
+          pages: book.pages.map((p) => (p.id === activePage.id ? { ...p, blocks: finalBlocks } : p)),
+        },
+        isSyllabus
+          ? `Scanned ${outBlocks.length} blocks (headings, lists & tables preserved)`
+          : result.mcqCount > 0
+            ? `Scanned ${result.mcqCount} questions${solvedCount ? ` · AI solved ${solvedCount}` : ''}`
+            : `Scanned ${result.blocks.length} blocks`,
       )
     } catch {
       showToast('Scan failed — use a clearer photo')
@@ -938,56 +1003,139 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
     e.target.value = ''
     if (!file || !activePage) return
     setBusy(true)
-    setOcrPct(15)
-    try {
-      const slideTexts = await parseMultiPageDocument(file)
-      setOcrPct(40)
+    setOcrFileName(file.name)
+    setOcrStatusText('Reading document & rendering page images...')
+    setOcrPct(10)
 
-      const newPages: BookPage[] = []
-      let totalSolvedCount = 0
-      let totalBlocksCount = 0
+    const isSyllabus = book.bookMode === 'questions-only'
+
+    try {
+      const slideTexts = await parseMultiPageDocument(
+        file,
+        (info) => {
+          setOcrStatusText(info.status)
+          setOcrPct(Math.round(info.progress * 100))
+        },
+        { mode: isSyllabus ? 'document' : 'qa' },
+      )
+
+      const totalPages = slideTexts.length
+      setOcrPct(85)
+      setOcrStatusText(
+        isSyllabus
+          ? `Found ${totalPages} page(s). Structuring headings, paragraphs, lists & tables...`
+          : `Found ${totalPages} page(s). Structuring MCQs & solving answers...`,
+      )
+
+      // 1. Structure each page (never AI-solve yet — the doc's own answer key wins).
+      const contentPages: ContentBlock[][] = []
+      const scannedKey: Record<number, string> = {}
+      const chapterMeta: { title?: string; number?: string } = {}
 
       for (let i = 0; i < slideTexts.length; i++) {
-        setOcrPct(Math.min(90, 40 + Math.round(((i + 1) / slideTexts.length) * 45)))
-        const slideText = slideTexts[i]
-        let processedText = slideText
-        try {
-          processedText = await callOpenAiDocText(slideText)
-        } catch (err) {
-          console.warn(`OpenAI Doc Text fallback for slide ${i + 1}:`, err)
+        const stepPct = Math.min(94, 85 + Math.round(((i + 1) / slideTexts.length) * 9))
+        setOcrPct(stepPct)
+        setOcrStatusText(
+          isSyllabus
+            ? `Page ${i + 1} of ${totalPages}: Rebuilding page layout…`
+            : `Page ${i + 1} of ${totalPages}: Structuring questions…`,
+        )
+
+        const { meta, text: slideText } = extractChapterMeta(slideTexts[i])
+        if (meta.title && !chapterMeta.title) chapterMeta.title = meta.title
+        if (meta.number && !chapterMeta.number) chapterMeta.number = meta.number
+
+        if (isSyllabus) {
+          contentPages.push(structureDocumentText(slideText))
+          continue
         }
+        const structured = structureExamText(slideText)
+        if (structured.answerKey && Object.keys(structured.answerKey).length > 0) {
+          Object.assign(scannedKey, structured.answerKey)
+        }
+        if (structured.blocks.length > 0) contentPages.push(structured.blocks)
+      }
 
-        const structured = structureExamText(processedText)
-        const { updatedBlocks, solvedCount } = await aiSolveUnansweredMcqs(structured.blocks)
-        totalSolvedCount += solvedCount
-        totalBlocksCount += updatedBlocks.length
+      // Syllabus: the leading "# Chapter Title" belongs in the header badge, not the body.
+      if (isSyllabus && contentPages[0]?.[0]?.type === 'heading1') {
+        if (!chapterMeta.title) chapterMeta.title = contentPages[0][0].text
+        contentPages[0] = contentPages[0].slice(1)
+      }
 
-        if (i === 0) {
-          updatePage(activePage.id, (p) => ({
-            ...p,
-            blocks: [...p.blocks.filter((b) => b.text.trim() || b.imageUrl), ...updatedBlocks],
-          }))
-        } else {
-          newPages.push({
-            id: uid('pg'),
-            number: book.pages.length + i,
-            blocks: updatedBlocks.length > 0 ? updatedBlocks : createEmptyPage(book.pages.length + i).blocks,
-          })
+      // 2. Question Bank: apply the scanned answer key, then AI-solve only the leftovers.
+      let totalSolvedCount = 0
+      let appliedFromKey = 0
+      if (!isSyllabus) {
+        const hasKey = Object.keys(scannedKey).length > 0
+        for (let p = 0; p < contentPages.length; p++) {
+          if (hasKey) {
+            const { blocks, applied } = applyAnswerKeyToBlocks(contentPages[p], scannedKey)
+            contentPages[p] = blocks
+            appliedFromKey += applied
+          } else {
+            setOcrStatusText(`Page ${p + 1}: AI solving question answers…`)
+            const solved = await aiSolveUnansweredMcqs(contentPages[p])
+            contentPages[p] = solved.updatedBlocks
+            totalSolvedCount += solved.solvedCount
+          }
         }
       }
+
+      const totalBlocksCount = contentPages.reduce((n, pg) => n + pg.length, 0)
+      const nonEmpty = contentPages.filter((pg) => pg.length > 0)
+      if (nonEmpty.length === 0) {
+        showToast('Doc Scan: nothing readable was extracted from this file')
+        return
+      }
+
+      // 3. Build the whole pages array in ONE commit (avoids losing page 1 on multi-page docs).
+      const isFreshBook =
+        book.pages.length === 1 &&
+        activePage.blocks.every((b) => !b.text.trim() || b.type === 'heading1' || b.type === 'paragraph')
+
+      const basePages: BookPage[] = [...book.pages]
+      const firstBlocks = isFreshBook
+        ? nonEmpty[0]
+        : [...activePage.blocks.filter((b) => b.text.trim() || b.imageUrl), ...nonEmpty[0]]
+      basePages[activeIndex] = { ...activePage, blocks: firstBlocks.length ? firstBlocks : activePage.blocks }
+
+      nonEmpty.slice(1).forEach((blocks, i) => {
+        basePages.splice(activeIndex + 1 + i, 0, { id: uid('pg'), number: 0, blocks })
+      })
+      const renumbered = basePages.map((p, i) => ({ ...p, number: i + 1 }))
+
+      // Fill the header badge / running title from the real document.
+      const nextHeaderFooter = { ...book.headerFooter }
+      if (chapterMeta.title) {
+        nextHeaderFooter.chapterTitle = chapterMeta.title
+        nextHeaderFooter.middleRightText = chapterMeta.title
+        if (!book.headerFooter.headerLeft || book.headerFooter.headerLeft === book.title) {
+          nextHeaderFooter.headerLeft = chapterMeta.title
+        }
+      }
+      if (chapterMeta.number) nextHeaderFooter.chapterNumber = chapterMeta.number
 
       setOcrPct(100)
-      if (newPages.length > 0) {
-        commit(
-          { ...book, pages: [...book.pages, ...newPages] },
-          `Extracted ${slideTexts.length} slides/pages (${totalBlocksCount} blocks · AI solved ${totalSolvedCount} answers)`,
-        )
-        showToast(`AI Doc Scan: Generated ${slideTexts.length} pages from ${file.name}!`)
-      } else {
-        showToast(`Processed ${file.name} (${totalBlocksCount} blocks · AI solved ${totalSolvedCount} answers)`)
-      }
+      setOcrStatusText('Document processing complete!')
+      const suffix = isSyllabus
+        ? ''
+        : appliedFromKey > 0
+          ? ` · ${appliedFromKey} answers from the answer key`
+          : totalSolvedCount > 0
+            ? ` · AI solved ${totalSolvedCount} answers`
+            : ''
+      commit(
+        {
+          ...book,
+          title: isFreshBook && chapterMeta.title ? chapterMeta.title : book.title,
+          headerFooter: nextHeaderFooter,
+          pages: renumbered,
+        },
+        `Extracted ${nonEmpty.length} page(s) · ${totalBlocksCount} blocks${suffix}`,
+      )
+      showToast(`Doc Scan: ${nonEmpty.length} page(s) from ${file.name}${chapterMeta.number ? ` — Chapter ${chapterMeta.number}` : ''}`)
     } catch {
-      showToast('AI Doc Scan: Could not parse document file')
+      showToast('Doc Scan: Could not parse document file')
     } finally {
       setBusy(false)
       setOcrPct(null)
@@ -1057,6 +1205,13 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
   }
 
   const pastePaper = () => {
+    if (book.bookMode === 'questions-only') {
+      const raw = window.prompt('Paste study material / chapter text')
+      if (!raw?.trim()) return
+      const blocks = structureDocumentText(raw)
+      addBlocks(blocks, `${blocks.length} blocks added`)
+      return
+    }
     const raw = window.prompt('Paste question paper text')
     if (!raw?.trim()) return
     const { blocks, mcqCount, answered } = structureExamText(raw)
@@ -1076,21 +1231,18 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement
+      const activeTag = (activeEl?.tagName || '').toLowerCase()
+      const isModalOpen = Boolean(document.querySelector('.fixed.z-\\[60\\], .fixed.z-\\[70\\], .fixed.z-\\[100\\]'))
+      if (isModalOpen) return
+
+      const isEditingText = activeTag === 'textarea' || activeTag === 'input' || activeEl?.getAttribute('contenteditable') === 'true'
       const meta = e.metaKey || e.ctrlKey
-      if (!meta) return
-      const k = e.key.toLowerCase()
-      if (k === 'z' && !e.shiftKey) {
-        e.preventDefault()
-        undo()
-      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
-        e.preventDefault()
-        redo()
-      } else if (k === 'e' || k === 'p') {
-        e.preventDefault()
-        exportBookPrintable(bookRef.current)
-      } else if (k === 'a') {
-        const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-        if (activeTag === 'textarea' || activeTag === 'input') {
+
+      // 1. Ctrl+A / Cmd+A Select All
+      if (meta && e.key.toLowerCase() === 'a') {
+        if (isEditingText) {
+          // Native Ctrl+A inside input/textarea works naturally
           return
         }
         e.preventDefault()
@@ -1104,20 +1256,112 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
             selection.addRange(range)
           }
         }
+        if (activePage) {
+          savedSelectionBlocksRef.current = activePage.blocks.map((b) => b.id)
+        }
+        return
+      }
+
+      // 2. Backspace or Delete Key Handling
+      if (!meta && (e.key === 'Backspace' || e.key === 'Delete')) {
+        const curPage = bookRef.current.pages.find((p) => p.id === activePageId)
+        if (!curPage) return
+
+        if (isEditingText) {
+          const targetInput = activeEl as HTMLInputElement | HTMLTextAreaElement
+          const isAllTextSelected =
+            targetInput.selectionStart === 0 &&
+            targetInput.selectionEnd === targetInput.value.length &&
+            targetInput.value.length > 0
+          const isEmpty = targetInput.value.trim() === ''
+
+          if (isAllTextSelected || isEmpty) {
+            const blockEl = targetInput.closest('[data-block-id]')
+            const bId = blockEl?.getAttribute('data-block-id')
+            if (bId) {
+              e.preventDefault()
+              if (curPage.blocks.length > 1) {
+                deleteBlock(bId)
+              } else {
+                updateBlock(bId, { text: '' })
+              }
+              showToast('Deleted block')
+            }
+          }
+          return
+        }
+
+        // Deletion outside focused input (selection on page canvas or block cards)
+        const selection = window.getSelection()
+        const selText = selection ? selection.toString().trim() : ''
+        const targetBlockIds = getSelectedBlockIds()
+
+        if (targetBlockIds.length > 0 || selText.length > 0 || savedSelectionBlocksRef.current.length > 0) {
+          e.preventDefault()
+          const deleteSet = new Set(targetBlockIds.length > 0 ? targetBlockIds : savedSelectionBlocksRef.current)
+          const remaining = curPage.blocks.filter((b) => !deleteSet.has(b.id))
+          const finalBlocks: ContentBlock[] =
+            remaining.length > 0
+              ? remaining
+              : [{ id: uid('blk'), type: 'paragraph', text: '', align: 'justify' }]
+
+          updatePage(
+            curPage.id,
+            (p) => ({ ...p, blocks: finalBlocks }),
+            { msg: `Deleted ${deleteSet.size} block(s)` }
+          )
+
+          savedSelectionBlocksRef.current = []
+          setSelectedBlockId(null)
+          if (selection) selection.removeAllRanges()
+          showToast('Deleted selected content')
+        }
+        return
+      }
+
+      if (!meta) return
+
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+        e.preventDefault()
+        redo()
+      } else if (k === 'e' || k === 'p') {
+        e.preventDefault()
+        exportBookPrintable(bookRef.current)
       }
     }
+
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  })
+  }, [activePageId, activePage, undo, redo, showToast])
 
   const onBlockKey = (e: ReactKeyboardEvent<HTMLTextAreaElement>, block: ContentBlock) => {
     if (e.key === 'Enter' && !e.shiftKey && block.type.startsWith('heading')) {
       e.preventDefault()
       addBlock('paragraph')
+      return
     }
-    if ((e.key === 'Backspace' || e.key === 'Delete') && block.text.trim() === '') {
-      e.preventDefault()
-      deleteBlock(block.id)
+
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      const target = e.currentTarget
+      const isAllSelected =
+        target.selectionStart === 0 &&
+        target.selectionEnd === target.value.length &&
+        target.value.length > 0
+      const isEmpty = target.value.trim() === ''
+
+      if (isAllSelected || isEmpty) {
+        e.preventDefault()
+        if (activePage && activePage.blocks.length > 1) {
+          deleteBlock(block.id)
+        } else {
+          updateBlock(block.id, { text: '' })
+        }
+        showToast('Deleted block')
+      }
     }
   }
 
@@ -1131,11 +1375,12 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
         </div>
       )}
 
-      {/* Title */}
-      <div className="h-10 flex-shrink-0 flex items-center gap-2 px-2" style={{ background: '#0E7490' }}>
-        <button onClick={onClose} className="px-2 py-1 rounded text-[12px] text-white/90 hover:bg-white/10">
+      {/* Top Header Bar */}
+      <div className="h-10 flex-shrink-0 flex items-center gap-2 px-3 bg-slate-900 border-b border-slate-800">
+        <button onClick={onClose} className="px-2.5 py-1 rounded-none text-[12px] font-semibold text-slate-200 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors">
           ← Documents
         </button>
+
         <input
           value={book.title}
           onChange={(e) =>
@@ -1145,411 +1390,289 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
               headerFooter: { ...book.headerFooter, headerLeft: e.target.value },
             })
           }
-          className="flex-1 max-w-[280px] bg-transparent text-white text-[13px] font-semibold outline-none truncate px-2"
+          className="flex-1 max-w-[280px] bg-transparent text-white text-[13px] font-semibold outline-none truncate px-2 border-b border-transparent focus:border-slate-600 transition-all"
         />
-        <div className="flex items-center gap-1.5 bg-white/15 px-3 py-1 rounded-full text-[11px] font-semibold text-white border border-white/20 shadow-inner" title="Publication format is locked once created">
-          <span>{book.bookMode === 'questions-only' ? 'Syllabus' : 'Question Bank'}</span>
-        </div>
-        <span className="text-[11px] text-white/70 hidden md:inline ml-auto">{busy ? (ocrPct != null ? `Scanning ${ocrPct}%` : 'Working…') : 'Saved'}</span>
-        <button onClick={() => exportBookPrintable(book)} className="px-3 py-1 rounded text-[12px] font-semibold" style={{ background: 'white', color: '#0E7490' }}>
+        {/* Mode Badge Tag */}
+        <span className="text-[10.5px] font-extrabold uppercase px-2.5 py-0.5 rounded-none bg-slate-800 text-slate-300 border border-slate-700 tracking-wider">
+          {book.bookMode === 'questions-only' ? 'Syllabus Mode' : 'Question Bank Mode'}
+        </span>
+
+        <span className="text-[11px] text-slate-400 hidden md:inline ml-auto">
+          {busy ? (ocrPct != null ? `Scanning ${ocrPct}%` : 'Working…') : 'Saved'}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => setShowConsoleModal(true)}
+          className="px-2.5 py-1 rounded-none text-[11.5px] font-bold bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 flex items-center gap-1.5 transition-all"
+          title="Open AI Debug Console"
+        >
+          <span className="w-1.5 h-1.5 bg-emerald-400" />
+          AI Logs
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowHfModal(true)}
+          className="px-2.5 py-1 rounded-none text-[11.5px] font-bold bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 transition-all"
+          title="Open Header, Footer & Watermark Settings"
+        >
+          Header &amp; Watermark
+        </button>
+
+        <button
+          type="button"
+          onClick={() => exportBookPrintable(book)}
+          className="px-3.5 py-1 rounded-none text-[12px] font-bold text-slate-900 bg-white hover:bg-slate-100 border border-white transition-all shadow-xs"
+        >
           Print / PDF
         </button>
       </div>
 
-      {/* QUICK ACCESS — most used, always visible */}
+      {/* SINGLE SLEEK UNIFIED CONTROL TOOLBAR (MS Word Ribbon Box Style) */}
       <div
-        className="flex-shrink-0 flex items-center gap-2 px-3 py-2.5 flex-wrap"
-        style={{ background: '#FAFAFA', borderBottom: '1px solid #E0E0E0' }}
+        className="flex-shrink-0 flex items-center justify-between px-3.5 py-2 flex-wrap gap-2 bg-slate-100 border-b border-slate-300 shadow-xs"
       >
-        <Btn onClick={undo} disabled={!canUndo} className="px-2.5 py-1.5 text-[12px] font-bold uppercase tracking-wider" title="Undo (Ctrl+Z)">
-          Undo
-        </Btn>
-        <Btn onClick={redo} disabled={!canRedo} className="px-2.5 py-1.5 text-[12px] font-bold uppercase tracking-wider" title="Redo (Ctrl+Y)">
-          Redo
-        </Btn>
-        <Sep />
-        <Btn onClick={() => addBlock('heading1')} className="px-2.5 py-1.5 text-[12px]">
-          Topic
-        </Btn>
-        <Btn onClick={() => addBlock('heading2')} className="px-2.5 py-1.5 text-[12px]">
-          1.1
-        </Btn>
-        <Btn onClick={() => addBlock('mcq')} className="px-2.5 py-1.5 text-[12px]">
-          MCQ
-        </Btn>
-        <Btn onClick={() => addBlock('math')} className="px-2.5 py-1.5 text-[12px]">
-          Math
-        </Btn>
-        <Btn onClick={addPage} className="px-2.5 py-1.5 text-[12px]">
-          + Page
-        </Btn>
-        <Sep />
-        {(['A4', 'B5', '8×8'] as PaperSize[]).map((s) => (
-          <Btn key={s} active={book.paperSize === s} onClick={() => commit({ ...book, paperSize: s })} className="px-2.5 py-1.5 text-[12px] font-mono">
-            {s}
-          </Btn>
-        ))}
-        <Sep />
-        <Btn onClick={() => setShowHfModal(true)} variant="accent" className="px-2.5 py-1.5 text-[12px] font-bold uppercase tracking-wider">
-          Header & Watermark Studio
-        </Btn>
-        <Btn onClick={handleAiSolveAnswers} disabled={busy} variant="accent" className="px-2.5 py-1.5 text-[12px] font-bold uppercase tracking-wider">
-          AI Solve Answers
-        </Btn>
-        <Sep />
-        <CopyControlBar book={book} activePage={activePage} activePageRef={activePageRef} bodyContentRef={bodyContentRef} onNotify={showToast} />
-        <div className="flex-1 min-w-[8px]" />
-        <Btn
-          variant="docScan"
-          onClick={() => fileDocRef.current?.click()}
-          disabled={busy}
-          className="px-4 py-2 text-[12px] font-bold uppercase tracking-wider shadow-sm"
-          title="Scan PDF or Document file → convert to questions & blocks"
-        >
-          DOC SCAN
-        </Btn>
-        <Btn
-          variant="scan"
-          onClick={() => fileOcrRef.current?.click()}
-          disabled={busy}
-          className="px-4 py-2 text-[12px] font-bold uppercase tracking-wider shadow-sm"
-          title="Scan question paper photo → questions, choices & answers"
-        >
-          IMAGE SCAN
-        </Btn>
-        <Btn variant="accent" onClick={runAlign} disabled={busy} className="px-3 py-2 text-[12px] font-bold uppercase tracking-wider">
-          ALIGN
-        </Btn>
-        <Btn variant="primary" onClick={runCompile} disabled={busy} className="px-3 py-2 text-[12px] font-bold uppercase tracking-wider">
-          COMPILE
-        </Btn>
-      </div>
-
-      {/* Ribbon tabs */}
-      {/* 4-Stage Workflow ribbon tabs */}
-      <div className="flex-shrink-0 flex items-end gap-1 px-3 pt-1.5" style={{ background: '#F3F4F6', borderBottom: '1px solid #D1D5DB' }}>
-        {(
-          [
-            ['stage1', '1. Content Entry & OCR'],
-            ['stage2', '2. Editing, MCQ & Fonts'],
-            ['stage3', '3. Preview & Compile'],
-            ['stage4', '4. Print & Export'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setRibbon(id)}
-            className="px-4 py-2 text-[12px] font-semibold rounded-t-lg transition-all"
-            style={{
-              background: ribbon === id ? 'white' : 'transparent',
-              color: ribbon === id ? '#0E7490' : '#4B5563',
-              border: ribbon === id ? '1px solid #D1D5DB' : '1px solid transparent',
-              borderBottom: ribbon === id ? '1px solid white' : '1px solid transparent',
-              marginBottom: ribbon === id ? -1 : 0,
-              boxShadow: ribbon === id ? '0 -2px 5px rgba(0,0,0,0.03)' : 'none',
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Stage Toolbar */}
-      <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 flex-wrap gap-2" style={{ background: 'white', borderBottom: '1px solid #D0D0D0', minHeight: 48 }}>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {ribbon === 'stage1' && (
-            <>
-              <span className="text-[11px] font-semibold text-gray-500 mr-1">Entry Tools:</span>
-              <Btn onClick={() => addBlock('heading1')} className="px-2.5 py-1.5 text-[12px]">Heading 1</Btn>
-              <Btn onClick={() => addBlock('heading2')} className="px-2.5 py-1.5 text-[12px]">Heading 2</Btn>
-              <Btn onClick={() => addBlock('paragraph')} className="px-2.5 py-1.5 text-[12px]">Paragraph</Btn>
-              <Btn onClick={() => addBlock('list')} className="px-2.5 py-1.5 text-[12px]">List</Btn>
-              <Btn onClick={() => fileImageRef.current?.click()} className="px-2.5 py-1.5 text-[12px]">Insert Image</Btn>
-              {selected && (
-                <button
-                  type="button"
-                  onClick={() => deleteBlock(selected.id)}
-                  className="px-2.5 py-1.5 text-[12px] bg-rose-50 border border-rose-300 text-rose-700 hover:bg-rose-600 hover:text-white font-bold rounded transition-colors flex items-center gap-1 cursor-pointer ml-1"
-                  title="Delete currently selected section / block"
-                >
-                  🗑 Remove Block
-                </button>
-              )}
-              <Sep />
-              <Btn onClick={pastePaper} className="px-3 py-1.5 text-[12px] font-semibold" variant="accent">
-                Paste Text / Content
-              </Btn>
-            </>
-          )}
-          {ribbon === 'stage2' && (
-            <>
-              <span className="text-[11px] font-semibold text-gray-500 mr-1">Format:</span>
-              {(['left', 'center', 'right', 'justify'] as const).map((a) => (
-                <Btn key={a} active={selected?.align === a} onClick={() => selected && updateBlock(selected.id, { align: a })} className="px-2 py-1 text-[11px] capitalize">
-                  {a}
-                </Btn>
-              ))}
-              <div className="flex items-center gap-1 bg-gray-100 rounded px-1.5 py-0.5 border border-gray-300 ml-1">
-                <span className="text-[10px] font-bold text-gray-500">Size:</span>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => adjustSelectedFontSize(-1)}
-                  disabled={!selected}
-                  className="px-1.5 py-0.5 rounded bg-white text-[11px] font-bold text-gray-700 hover:bg-gray-200 disabled:opacity-40"
-                  title="Decrease font size (-1pt)"
-                >
-                  −
-                </button>
-                <select
-                  value={selected?.fontSize || (selected?.type === 'heading1' ? 22 : selected?.type === 'heading2' ? 16 : selected?.type === 'heading3' ? 14 : 13.5)}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onChange={(e) => setBatchFontSize(Number(e.target.value), selected?.id)}
-                  disabled={!selected}
-                  className="px-1 py-0.5 rounded text-[11px] font-semibold bg-white outline-none disabled:opacity-40"
-                  style={{ border: '1px solid #CCC' }}
-                  title="Selected text block font size"
-                >
-                  {[8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 36, 40, 48].map((s) => (
-                    <option key={s} value={s}>
-                      {s}pt
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => adjustSelectedFontSize(1)}
-                  disabled={!selected}
-                  className="px-1.5 py-0.5 rounded bg-white text-[11px] font-bold text-gray-700 hover:bg-gray-200 disabled:opacity-40"
-                  title="Increase font size (+1pt)"
-                >
-                  +
-                </button>
-              </div>
-              <div className="flex items-center gap-1 bg-gray-100 rounded px-1.5 py-0.5 border border-gray-300 ml-1">
-                <span className="text-[10px] font-bold text-gray-500">Case:</span>
-                <button
-                  type="button"
-                  onClick={() => changeBlockCase('upper')}
-                  disabled={!selected}
-                  className="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-gray-700 hover:bg-gray-200 disabled:opacity-40"
-                  title="Convert text to UPPERCASE"
-                >
-                  AA
-                </button>
-                <button
-                  type="button"
-                  onClick={() => changeBlockCase('lower')}
-                  disabled={!selected}
-                  className="px-1.5 py-0.5 rounded bg-white text-[10px] font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40"
-                  title="Convert text to lowercase"
-                >
-                  aa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => changeBlockCase('title')}
-                  disabled={!selected}
-                  className="px-1.5 py-0.5 rounded bg-white text-[10px] font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40"
-                  title="Convert text to Title Case"
-                >
-                  Aa
-                </button>
-              </div>
-              <Sep />
-              <span className="text-[11px] font-semibold text-gray-500 mr-1">Structure &amp; MCQs:</span>
-              <Btn onClick={insertTopic} className="px-2.5 py-1.5 text-[12px]">Topic Tree</Btn>
-              <Btn onClick={() => addBlock('mcq')} className="px-2.5 py-1.5 text-[12px]">Blank MCQ</Btn>
-              {selected && (
-                <button
-                  type="button"
-                  onClick={() => deleteBlock(selected.id)}
-                  className="px-2.5 py-1.5 text-[12px] bg-rose-50 border border-rose-300 text-rose-700 hover:bg-rose-600 hover:text-white font-bold rounded transition-colors flex items-center gap-1 cursor-pointer ml-1"
-                  title="Delete currently selected section / block"
-                >
-                  🗑 Remove Block
-                </button>
-              )}
-              <Btn
-                onClick={() =>
-                  addBlocks(generateMcqBank(book.title, 5, nextMcqNumber(activePage?.blocks || [])), '5 MCQs + answers')
-                }
-                className="px-2.5 py-1.5 text-[12px]"
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* 1. Undo / Redo & AI Smart Ingestion */}
+          <div className="flex items-center gap-1">
+            {/* Undo / Redo Buttons (Sharp Box Style) */}
+            <div className="flex items-center border border-slate-300 bg-white">
+              <button
+                type="button"
+                onClick={undo}
+                disabled={!canUndo}
+                className="p-1 rounded-none text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition-colors border-r border-slate-300"
+                title="Undo (Ctrl+Z)"
               >
-                Auto MCQs
-              </Btn>
-              <Btn onClick={() => addBlock('math')} className="px-2.5 py-1.5 text-[12px]">Math Formula</Btn>
-              <Btn onClick={makeAnswerKey} className="px-2.5 py-1.5 text-[12px]" variant="accent">Generate Answer Key</Btn>
-              <Btn onClick={() => fitContentToPage()} className="px-2.5 py-1.5 text-[12px] font-semibold" variant="accent" title="Auto-scale line spacing and margins to fill vertical page layout">✨ Auto-Fit Page Layout</Btn>
-              <Sep />
-              <span className="text-[11px] font-semibold text-gray-500 mr-1">Fonts:</span>
-              <select
-                value={book.fontId === 'custom' ? `custom:${book.customFontFamily || ''}` : book.fontId}
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (v.startsWith('custom:')) {
-                    const fam = v.slice(7)
-                    const found = customFonts.find((f) => f.family === fam)
-                    if (found) applyCustomAsBody(found)
-                    return
-                  }
-                  commit({ ...book, fontId: v, customFontFamily: undefined, customFontLabel: undefined }, getPreset(v).label)
-                }}
-                className="px-2 py-1 rounded text-[11px] outline-none max-w-[140px] font-medium truncate cursor-pointer"
-                style={{ border: '1px solid #CCC', background: 'white' }}
-                title="Document font (100+ Free Fonts for Tamil, English, Maths)"
-              >
-                <optgroup label="── Tamil Fonts (25+) ──">
-                  {FONT_PRESETS.filter((f) => f.group === 'Tamil').map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="── English Fonts (45+) ──">
-                  {FONT_PRESETS.filter((f) => f.group === 'English').map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="── Maths & Scientific Fonts (20+) ──">
-                  {FONT_PRESETS.filter((f) => f.group === 'Math').map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="── Mixed / Multilingual (12+) ──">
-                  {FONT_PRESETS.filter((f) => f.group === 'Mixed').map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                    </option>
-                  ))}
-                </optgroup>
-                {customFonts.length > 0 && (
-                  <optgroup label="── Custom Imported Fonts ──">
-                    {customFonts.map((f) => (
-                      <option key={f.id} value={`custom:${f.family}`}>
-                        Custom: {f.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-              <Btn onClick={() => fileFontRef.current?.click()} className="px-2 py-1 text-[11px]">Import Font</Btn>
-              <Btn onClick={() => exportFontSettings(fontPrefs())} className="px-2 py-1 text-[11px]">Export Settings</Btn>
-            </>
-          )}
-          {ribbon === 'stage3' && (
-            <>
-              <span className="text-[11px] font-semibold text-gray-500 mr-1">Compile &amp; Align:</span>
-              <Btn variant="accent" onClick={runAlign} disabled={busy} className="px-3.5 py-1.5 text-[12px] font-semibold">
-                Auto Align Layout
-              </Btn>
-              <Btn variant="primary" onClick={runCompile} disabled={busy} className="px-3.5 py-1.5 text-[12px] font-semibold">
-                Compile Book &amp; Validate
-              </Btn>
-              <Sep />
-              <span className="text-[11px] font-semibold text-gray-500 mr-1">Page Navigation:</span>
-              <Btn onClick={() => goPage(-1)} disabled={activeIndex <= 0} className="px-2.5 py-1 text-[12px]">Previous</Btn>
-              <span className="text-[11px] font-mono font-semibold px-1">Page {activeIndex + 1} of {book.pages.length}</span>
-              <Btn onClick={() => goPage(1)} disabled={activeIndex >= book.pages.length - 1} className="px-2.5 py-1 text-[12px]">Next</Btn>
-              <Btn onClick={addPage} className="px-2.5 py-1 text-[12px]">+ Page</Btn>
-              <Btn onClick={deletePage} disabled={book.pages.length <= 1} className="px-2.5 py-1 text-[12px]">Delete Page</Btn>
-              <Sep />
-              <Btn onClick={undo} disabled={!canUndo} className="px-2.5 py-1 text-[12px] flex items-center gap-1.5 font-medium" title="Undo (Ctrl+Z)">
-                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                  <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                 </svg>
-                <span>Undo</span>
-              </Btn>
-              <Btn onClick={redo} disabled={!canRedo} className="px-2.5 py-1 text-[12px] flex items-center gap-1.5 font-medium" title="Redo (Ctrl+Y)">
-                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                  <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22l2.37.78c1.05-3.19 4.06-5.5 7.59-5.5 1.96 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
-                </svg>
-                <span>Redo</span>
-              </Btn>
-            </>
-          )}
-          {ribbon === 'stage4' && (
-            <>
-              <span className="text-[11px] font-semibold text-gray-500 mr-1">Publication Size:</span>
-              {(['A4', 'B5', '8×8'] as PaperSize[]).map((s) => (
-                <Btn key={s} active={book.paperSize === s} onClick={() => commit({ ...book, paperSize: s }, `Size updated to ${s}`)} className="px-3 py-1.5 text-[12px] font-mono font-bold">
-                  {s}
-                </Btn>
-              ))}
-              <Sep />
-              <Btn
-                variant="scan"
-                onClick={() => exportBookPrintable(book)}
-                className="px-5 py-2 text-[13px] font-bold shadow"
+              </button>
+              <button
+                type="button"
+                onClick={redo}
+                disabled={!canRedo}
+                className="p-1 rounded-none text-slate-700 hover:bg-slate-100 disabled:opacity-30 transition-colors"
+                title="Redo (Ctrl+Y)"
               >
-                Export Print-Ready PDF ({book.paperSize})
-              </Btn>
-            </>
-          )}
-        </div>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
+                </svg>
+              </button>
+            </div>
 
-        {/* Global Production Controls Bar */}
-        <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-          <div className="flex rounded-lg overflow-hidden border border-slate-300 bg-slate-100 p-0.5">
             <button
               type="button"
-              onClick={() => commit({ ...book, headerFooter: { ...book.headerFooter, layoutColumns: 1 } }, '1 Column Layout')}
-              className={`px-2.5 py-1 text-[11px] font-bold transition-all ${
-                book.headerFooter.layoutColumns === 1
-                  ? 'bg-white text-teal-700 shadow-sm rounded'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="1 Column Layout (For General Subjects)"
+              onClick={() => fileDocRef.current?.click()}
+              disabled={busy}
+              className="px-3 py-1 rounded-none text-[11.5px] font-bold text-white bg-slate-900 hover:bg-slate-800 border border-slate-900 transition-all shadow-xs"
+              title="Scan PDF or Document file"
             >
-              1 Column
+              Doc Scan
             </button>
             <button
               type="button"
-              onClick={() => commit({ ...book, headerFooter: { ...book.headerFooter, layoutColumns: 2 } }, '2 Columns Layout')}
-              className={`px-2.5 py-1 text-[11px] font-bold transition-all ${
-                book.headerFooter.layoutColumns === 2
-                  ? 'bg-white text-teal-700 shadow-sm rounded'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="2 Columns Layout (For Maths & Science)"
+              onClick={() => fileOcrRef.current?.click()}
+              disabled={busy}
+              className="px-3 py-1 rounded-none text-[11.5px] font-semibold bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 transition-colors"
+              title="Scan image photo with OCR"
             >
-              2 Columns
+              Image Scan
             </button>
+            <button
+              type="button"
+              onClick={pastePaper}
+              className="px-2.5 py-1 rounded-none text-[11.5px] font-semibold bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 transition-colors"
+              title="Paste raw text or question paper"
+            >
+              Smart Paste
+            </button>
+            {book.bookMode !== 'questions-only' ? (
+              <button
+                type="button"
+                onClick={handleAiSolveAnswers}
+                disabled={busy}
+                className="px-3 py-1 rounded-none font-bold text-[11.5px] text-white bg-slate-800 hover:bg-slate-700 transition-all shadow-xs border border-slate-700 disabled:opacity-50"
+                title="AI solves answers & auto-generates Answer Key"
+              >
+                AI Solve Answers
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => autoCorrectBook(book)}
+                disabled={busy}
+                className="px-3 py-1 rounded-none font-bold text-[11.5px] text-white bg-slate-800 hover:bg-slate-700 transition-all shadow-xs border border-slate-700 disabled:opacity-50"
+                title="Auto-correct typos, letter spaces and formatting"
+              >
+                Auto-Fix &amp; Format
+              </button>
+            )}
           </div>
 
+          <Sep />
+
+          {/* 2. Layout Columns & Paper Size */}
+          <div className="flex items-center gap-1.5">
+            <div className="flex border border-slate-300 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => commit({ ...book, headerFooter: { ...book.headerFooter, layoutColumns: 1 } }, '1 Column Layout')}
+                className={`px-2.5 py-0.5 text-[11px] font-bold transition-all rounded-none ${
+                  book.headerFooter.layoutColumns === 1
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                1 Col
+              </button>
+              <button
+                type="button"
+                onClick={() => commit({ ...book, headerFooter: { ...book.headerFooter, layoutColumns: 2 } }, '2 Columns Layout')}
+                className={`px-2.5 py-0.5 text-[11px] font-bold transition-all rounded-none ${
+                  book.headerFooter.layoutColumns === 2
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                2 Col
+              </button>
+            </div>
+
+            <div className="flex border border-slate-300 bg-white p-0.5">
+              {(['A4', 'B5', '8×8'] as PaperSize[]).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => commit({ ...book, paperSize: s }, `Size updated to ${s}`)}
+                  className={`px-2 py-0.5 text-[11px] font-bold transition-all rounded-none ${
+                    book.paperSize === s
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Sep />
+
+          {/* 3. Content Additions (Mode-Specific) */}
+          <div className="flex items-center gap-1">
+            {book.bookMode === 'questions-only' ? (
+              <>
+                <Btn onClick={insertTopic} className="px-2.5 py-1 text-[11.5px] font-bold text-slate-800" title="Insert Chapter / Topic">
+                  + Topic
+                </Btn>
+                <Btn onClick={() => addBlock('heading2')} className="px-2.5 py-1 text-[11.5px]" title="Insert 1.1 Sub-heading">
+                  + Sub-topic (1.1)
+                </Btn>
+                <Btn onClick={() => addBlock('paragraph')} className="px-2.5 py-1 text-[11.5px]" title="Insert Paragraph">
+                  + Paragraph
+                </Btn>
+                <Btn onClick={() => addBlock('list')} className="px-2.5 py-1 text-[11.5px]" title="Insert Bullet List">
+                  + List
+                </Btn>
+                <Btn onClick={() => addBlock('table')} className="px-2.5 py-1 text-[11.5px]" title="Insert Table">
+                  + Table
+                </Btn>
+                <Btn onClick={() => addBlock('math')} className="px-2.5 py-1 text-[11.5px]" title="Insert Math Formula">
+                  + Math
+                </Btn>
+              </>
+            ) : (
+              <>
+                <Btn onClick={() => addBlock('mcq')} className="px-2.5 py-1 text-[11.5px] font-bold text-slate-800" title="Insert MCQ Question">
+                  + MCQ Question
+                </Btn>
+                <Btn onClick={() => addBlock('heading1')} className="px-2.5 py-1 text-[11.5px]" title="Insert Topic Header">
+                  + Topic
+                </Btn>
+                <Btn onClick={() => addBlock('math')} className="px-2.5 py-1 text-[11.5px]" title="Insert Math Formula">
+                  + Math
+                </Btn>
+              </>
+            )}
+            <Btn onClick={addPage} className="px-2.5 py-1 text-[11.5px]" title="Add new blank page">
+              + Page
+            </Btn>
+          </div>
+        </div>
+
+        {/* Right Utility Group */}
+        <div className="flex items-center gap-2">
+          {/* Copy Dropdown */}
+          <CopyControlBar book={book} activePage={activePage} activePageRef={activePageRef} bodyContentRef={bodyContentRef} onNotify={showToast} />
+
+          {/* Align & Compile */}
           <button
             type="button"
-            onClick={handleAiSolveAnswers}
+            onClick={runAlign}
             disabled={busy}
-            className="px-3 py-1.5 rounded-lg font-bold text-[11px] text-white flex items-center gap-1.5 shadow-sm transition-all hover:opacity-95 disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg, #4F46E5, #7C3AED)' }}
-            title="AI scans all questions, solves answers & auto-generates Answer Key"
+            className="px-2.5 py-1 rounded-none text-[11.5px] font-semibold bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 transition-colors"
+            title="Auto-align line spacing and reflow overflow text"
           >
-            <span>✨</span>
-            <span>AI Solve Answers</span>
+            Align
           </button>
 
           <button
             type="button"
-            onClick={() => setShowHfModal(true)}
-            className="px-3 py-1.5 rounded-lg font-semibold text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 flex items-center gap-1.5"
-            title="Open Header, Footer, Watermark & Page Tabs Studio"
+            onClick={runCompile}
+            disabled={busy}
+            className="px-3 py-1 rounded-none text-[11.5px] font-bold text-white bg-slate-900 hover:bg-slate-800 border border-slate-900 transition-colors shadow-xs"
+            title="Compile book & validate layout structure"
           >
-            <span>🎨</span>
-            <span>Header &amp; Watermark</span>
+            Compile
           </button>
         </div>
       </div>
 
-      {/* OCR progress */}
+      {/* Professional OCR & Document Ingestion Progress Modal Overlay */}
       {ocrPct != null && (
-        <div className="h-1 flex-shrink-0" style={{ background: '#D1FAE5' }}>
-          <div className="h-full transition-all" style={{ width: `${ocrPct}%`, background: '#059669' }} />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs animate-fade-in select-none">
+          <div className="w-[440px] max-w-[92vw] bg-white border border-slate-300 shadow-2xl p-6 rounded-none space-y-4 animate-scale-in">
+            {/* Top Bar with Animated Spinner and Percentage */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-none bg-slate-900 text-white flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                    <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-[14px] font-bold text-slate-900 leading-tight">
+                    AI Document Scanning & Processing
+                  </h3>
+                  {ocrFileName && (
+                    <p className="text-[11.5px] font-semibold text-slate-500 truncate max-w-[240px] mt-0.5">
+                      {ocrFileName}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="text-[22px] font-extrabold text-slate-900 font-mono tracking-tight ml-2">
+                {ocrPct}%
+              </div>
+            </div>
+
+            {/* High Contrast Progress Bar */}
+            <div className="space-y-2">
+              <div className="h-3 w-full bg-slate-100 border border-slate-300 p-0.5 overflow-hidden">
+                <div
+                  className="h-full bg-slate-900 transition-all duration-300 ease-out"
+                  style={{ width: `${Math.max(4, ocrPct)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11.5px] font-medium text-slate-700">
+                <span className="truncate max-w-[300px]">{ocrStatusText}</span>
+                <span className="font-mono text-slate-500 font-bold">{ocrPct} / 100</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1720,29 +1843,8 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                       {book.headerFooter.watermarkImage ? (
                         <img src={book.headerFooter.watermarkImage} alt="watermark" className="max-w-full max-h-full object-contain mx-auto my-auto" />
                       ) : (
-                      <svg viewBox="0 0 400 400" className="w-full h-full">
-                        <circle cx="200" cy="200" r="180" fill="none" stroke="#64748B" strokeWidth="2.5" strokeDasharray="6,4" />
-                        <circle cx="200" cy="200" r="162" fill="none" stroke="#64748B" strokeWidth="1.5" />
-                        <path id="circlePathCanvasKey" d="M 50, 200 A 150,150 0 1,1 350,200 A 150,150 0 1,1 50,200" fill="none" />
-                        <text fontSize="14" fontWeight="700" fill="#475569" letterSpacing="3">
-                          <textPath href="#circlePathCanvasKey" startOffset="50%" textAnchor="middle">
-                            {book.headerFooter.watermarkText || 'KARTHIKEYAN ANALYSIS STUDY CIRCLE'}
-                          </textPath>
-                        </text>
-                        <g transform="translate(130, 110) scale(0.7)">
-                          <path d="M50,20 L80,100 L20,100 Z" fill="none" stroke="#475569" strokeWidth="3" />
-                          <path d="M100,20 L130,100 L70,100 Z" fill="none" stroke="#475569" strokeWidth="3" />
-                          <circle cx="100" cy="110" r="28" fill="none" stroke="#475569" strokeWidth="3" />
-                          <path d="M60,130 Q100,160 140,130" fill="none" stroke="#475569" strokeWidth="3" />
-                        </g>
-                        <text x="200" y="275" fontSize="16" fontWeight="800" fill="#334155" textAnchor="middle" letterSpacing="2">
-                          STUDY CIRCLE
-                        </text>
-                        <text x="200" y="295" fontSize="10" fontWeight="600" fill="#64748B" textAnchor="middle">
-                          SINCE 2020
-                        </text>
-                      </svg>
-                    )}
+                        <img src="/logo.jpeg" alt="watermark" className="max-w-full max-h-full object-contain mx-auto my-auto" />
+                      )}
                     </div>
                   </div>
                 )}
@@ -1867,29 +1969,8 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                       {book.headerFooter.watermarkImage ? (
                         <img src={book.headerFooter.watermarkImage} alt="watermark" className="max-w-full max-h-full object-contain mx-auto my-auto" />
                       ) : (
-                      <svg viewBox="0 0 400 400" className="w-full h-full">
-                        <circle cx="200" cy="200" r="180" fill="none" stroke="#64748B" strokeWidth="2.5" strokeDasharray="6,4" />
-                        <circle cx="200" cy="200" r="162" fill="none" stroke="#64748B" strokeWidth="1.5" />
-                        <path id="circlePathCanvas" d="M 50, 200 A 150,150 0 1,1 350,200 A 150,150 0 1,1 50,200" fill="none" />
-                        <text fontSize="14" fontWeight="700" fill="#475569" letterSpacing="3">
-                          <textPath href="#circlePathCanvas" startOffset="50%" textAnchor="middle">
-                            {book.headerFooter.watermarkText || 'KARTHIKEYAN ANALYSIS STUDY CIRCLE'}
-                          </textPath>
-                        </text>
-                        <g transform="translate(130, 110) scale(0.7)">
-                          <path d="M50,20 L80,100 L20,100 Z" fill="none" stroke="#475569" strokeWidth="3" />
-                          <path d="M100,20 L130,100 L70,100 Z" fill="none" stroke="#475569" strokeWidth="3" />
-                          <circle cx="100" cy="110" r="28" fill="none" stroke="#475569" strokeWidth="3" />
-                          <path d="M60,130 Q100,160 140,130" fill="none" stroke="#475569" strokeWidth="3" />
-                        </g>
-                        <text x="200" y="275" fontSize="16" fontWeight="800" fill="#334155" textAnchor="middle" letterSpacing="2">
-                          STUDY CIRCLE
-                        </text>
-                        <text x="200" y="295" fontSize="10" fontWeight="600" fill="#64748B" textAnchor="middle">
-                          SINCE 2020
-                        </text>
-                      </svg>
-                    )}
+                        <img src="/logo.jpeg" alt="watermark" className="max-w-full max-h-full object-contain mx-auto my-auto" />
+                      )}
                     </div>
                   </div>
                 )}
@@ -2007,30 +2088,15 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                           {isSel && (
                             <div
                               data-no-copy="true"
-                              className="flex items-center gap-1.5 mb-2 px-2.5 py-1 rounded-lg bg-white text-slate-800 shadow-xl text-[11px] z-40 flex-wrap border border-slate-300 select-none no-copy floating-toolbar transition-shadow hover:shadow-2xl"
+                              className="inline-flex items-center gap-1.5 mb-2 px-2.5 py-1 rounded-md bg-white text-slate-800 shadow-sm text-[11px] flex-wrap border border-slate-300 select-none no-copy"
                               style={{
                                 width: 'fit-content',
                                 userSelect: 'none',
                                 WebkitUserSelect: 'none',
-                                transform: toolbarPos ? `translate3d(${toolbarPos.x}px, ${toolbarPos.y}px, 0)` : undefined,
                                 margin: alignment === 'left' ? '0 auto 8px 0' : alignment === 'right' ? '0 0 8px auto' : '0 auto 8px auto',
                               }}
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <div
-                                onMouseDown={handleToolbarDragStart}
-                                className="cursor-grab active:cursor-grabbing px-1 py-0.5 -ml-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors"
-                                title="Click and drag to move toolbar anywhere on screen"
-                              >
-                                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 16 16">
-                                  <circle cx="5" cy="4" r="1.2" />
-                                  <circle cx="11" cy="4" r="1.2" />
-                                  <circle cx="5" cy="8" r="1.2" />
-                                  <circle cx="11" cy="8" r="1.2" />
-                                  <circle cx="5" cy="12" r="1.2" />
-                                  <circle cx="11" cy="12" r="1.2" />
-                                </svg>
-                              </div>
                               <span className="font-bold text-teal-700 text-[10px] uppercase tracking-wider">🖼 Image</span>
                               <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
 
@@ -2160,10 +2226,8 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                         key={block.id}
                         data-block-id={block.id}
                         onClick={() => setSelectedBlockId(block.id)}
-                        className={`relative break-inside-avoid transition-all max-w-full ${
-                          block.type === 'mcq'
-                            ? 'my-3.5 pb-2.5 border-b border-slate-200/80 hover:border-teal-400'
-                            : 'my-1.5'
+                        className={`relative break-inside-avoid transition-all max-w-full group/blk ${
+                          block.type === 'mcq' ? 'my-2' : 'my-1.5'
                         }`}
                         style={{
                           overflowWrap: 'anywhere',
@@ -2172,91 +2236,19 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                       >
                         {isSel ? (
                           <>
-                            <div
+                            <button
+                              type="button"
                               data-no-copy="true"
-                              className="flex items-center gap-1.5 mb-1.5 px-2 py-1 rounded-lg bg-white text-slate-800 shadow-lg text-[11px] z-40 flex-wrap border border-slate-300 select-none no-copy floating-toolbar transition-shadow hover:shadow-xl"
-                              style={{
-                                width: 'fit-content',
-                                userSelect: 'none',
-                                WebkitUserSelect: 'none',
-                                transform: toolbarPos ? `translate3d(${toolbarPos.x}px, ${toolbarPos.y}px, 0)` : undefined,
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                deleteBlock(block.id)
                               }}
-                              onClick={(e) => e.stopPropagation()}
+                              className="no-copy select-none absolute -top-2 -right-2 z-30 w-5 h-5 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold flex items-center justify-center shadow opacity-0 group-hover/blk:opacity-100 transition-opacity"
+                              title="Delete this block"
                             >
-                              <div
-                                onMouseDown={handleToolbarDragStart}
-                                className="cursor-grab active:cursor-grabbing px-1 py-0.5 -ml-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors"
-                                title="Click and drag to move toolbar anywhere on screen"
-                              >
-                                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 16 16">
-                                  <circle cx="5" cy="4" r="1.2" />
-                                  <circle cx="11" cy="4" r="1.2" />
-                                  <circle cx="5" cy="8" r="1.2" />
-                                  <circle cx="11" cy="8" r="1.2" />
-                                  <circle cx="5" cy="12" r="1.2" />
-                                  <circle cx="11" cy="12" r="1.2" />
-                                </svg>
-                              </div>
-                              <span className="font-bold text-teal-700 text-[10px] uppercase tracking-wider">{block.type}</span>
-                              <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
-                              <span className="text-slate-500 font-medium text-[10px]">Size:</span>
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => adjustSelectedFontSize(-1, block.id)}
-                                className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center leading-none text-[12px] border border-slate-300 transition-colors"
-                                title="Smaller text (-1pt)"
-                              >
-                                −
-                              </button>
-                              <select
-                                value={block.fontSize || defaultSize}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onChange={(e) => setBatchFontSize(Number(e.target.value), block.id)}
-                                className="px-1.5 py-0.5 rounded bg-white text-slate-800 font-semibold outline-none border border-slate-300 text-[11px] cursor-pointer"
-                              >
-                                {[8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 36, 48].map((s) => (
-                                  <option key={s} value={s}>
-                                    {s}pt
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => adjustSelectedFontSize(1, block.id)}
-                                className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold flex items-center justify-center leading-none text-[12px] border border-slate-300 transition-colors"
-                                title="Larger text (+1pt)"
-                              >
-                                +
-                              </button>
-
-                              <div className="h-3 w-[1px] bg-slate-300 mx-0.5" />
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  deleteBlock(block.id)
-                                }}
-                                className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 font-bold text-[10px] border border-rose-300 transition-colors flex items-center gap-1 cursor-pointer"
-                                title="Delete / remove this section block"
-                              >
-                                🗑 Delete
-                              </button>
-
-                              {toolbarPos && (
-                                <button
-                                  type="button"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => setToolbarPos(null)}
-                                  className="text-[10px] text-slate-400 hover:text-teal-700 px-1 font-semibold ml-0.5 border-l border-slate-200"
-                                  title="Reset toolbar position"
-                                >
-                                  ↺ Reset
-                                </button>
-                              )}
-                            </div>
+                              ×
+                            </button>
                             <textarea
                               value={block.type === 'mcq' ? stripInlineAnswerTags(block.text) : block.text}
                               onChange={(e) => {
@@ -2311,7 +2303,58 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                             onDoubleClick={() => setSelectedBlockId(block.id)}
                           >
                             {block.text ? (
-                              block.type === 'heading2' ? (
+                              block.type === 'table' ? (
+                                (() => {
+                                  const { header, rows } = parseMarkdownTable(block.text)
+                                  if (header.length === 0) return <span>{block.text}</span>
+                                  return (
+                                    <div className="my-2 overflow-x-auto">
+                                      <table className="border-collapse w-full" style={{ fontSize: '0.92em' }}>
+                                        <thead>
+                                          <tr>
+                                            {header.map((h, hi) => (
+                                              <th
+                                                key={hi}
+                                                className="border border-slate-400 bg-slate-200 text-black font-bold px-2 py-1 text-left align-top"
+                                                dangerouslySetInnerHTML={{ __html: renderTextWithMath(h) }}
+                                              />
+                                            ))}
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {rows.map((r, ri) => (
+                                            <tr key={ri}>
+                                              {header.map((_, ci) => (
+                                                <td
+                                                  key={ci}
+                                                  className="border border-slate-400 px-2 py-1 align-top"
+                                                  dangerouslySetInnerHTML={{ __html: renderTextWithMath(r[ci] ?? '') }}
+                                                />
+                                              ))}
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )
+                                })()
+                              ) : block.type === 'list' ? (
+                                <div className="my-1.5 space-y-0.5">
+                                  {block.text.split('\n').map((line, li) => {
+                                    const t = line.trim()
+                                    if (!t) return null
+                                    const m = t.match(/^([-•]|\(?[a-zA-Z]\)|[a-zA-Z][.)]|\(?(?:i{1,3}|iv|v|vi{1,3}|ix|x)\)|(?:i{1,3}|iv|v|vi{1,3}|ix|x)[.)]|\d{1,2}[.)])\s+(.*)$/i)
+                                    const marker = m ? (m[1] === '-' ? '•' : m[1]) : '•'
+                                    const body = m ? m[2] : t
+                                    return (
+                                      <div key={li} className="flex gap-1.5" style={{ lineHeight: 1.25 }}>
+                                        <span className="shrink-0 text-slate-500 font-semibold">{marker}</span>
+                                        <span dangerouslySetInnerHTML={{ __html: renderTextWithMath(body) }} />
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              ) : block.type === 'heading2' ? (
                                 (() => {
                                   const secM = block.text.match(/^\s*(\d+(\.\d+)*)\.?\s+(.+)$/)
                                   const secNum = secM ? secM[1] : ''
@@ -2376,29 +2419,37 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
                                 })()
                               ) : block.type === 'mcq' ? (
                                 <div className="space-y-0.5" style={{ lineHeight: 1.2 }}>
-                                  {block.text.split('\n').map((line, i) => {
-                                    const cleanLine = stripInlineAnswerTags(line)
-                                    if (!cleanLine) return null
-                                    const html = renderTextWithMath(cleanLine)
-                                    if (i === 0) {
+                                  {(() => {
+                                    const rawLines = block.text.split('\n')
+                                    let optStarted = false
+                                    return rawLines.map((line, i) => {
+                                      const cleanLine = stripInlineAnswerTags(line)
+                                      if (!cleanLine) return null
+                                      if (i > 0 && !optStarted && isMcqOptionLine(cleanLine)) optStarted = true
+                                      const isOpt = i > 0 && optStarted
+                                      const answered =
+                                        isOpt && block.answer && new RegExp(`^\\s*(?:\\(${block.answer}\\)|${block.answer}[.)])\\s`).test(cleanLine)
+                                      const html = renderTextWithMath(cleanLine)
+                                      if (!isOpt) {
+                                        return (
+                                          <div
+                                            key={i}
+                                            className={i === 0 ? 'font-bold text-slate-900 mb-1' : 'text-slate-800'}
+                                            style={{ lineHeight: 1.25 }}
+                                            dangerouslySetInnerHTML={{ __html: html }}
+                                          />
+                                        )
+                                      }
                                       return (
                                         <div
                                           key={i}
-                                          className="font-bold text-slate-900 mb-1"
-                                          style={{ lineHeight: 1.2 }}
+                                          className={`pl-3 text-[0.96em] ${answered ? 'font-semibold text-emerald-700' : 'text-slate-800'}`}
+                                          style={{ lineHeight: 1.25 }}
                                           dangerouslySetInnerHTML={{ __html: html }}
                                         />
                                       )
-                                    }
-                                    return (
-                                      <div
-                                        key={i}
-                                        className="pl-3 text-[0.96em] text-slate-800"
-                                        style={{ lineHeight: 1.2 }}
-                                        dangerouslySetInnerHTML={{ __html: html }}
-                                      />
-                                    )
-                                  })}
+                                    })
+                                  })()}
                                 </div>
                               ) : renderTextWithMath(block.text).includes('<span class="katex">') ? (
                                 <div style={{ lineHeight: 1.2 }} dangerouslySetInnerHTML={{ __html: renderTextWithMath(block.text) }} />
@@ -2510,6 +2561,9 @@ export default function BookEditor({ book: rawBook, onChange, onClose }: BookEdi
         onChange={(hf) => commit({ ...book, headerFooter: hf }, 'Header & Watermark updated')}
         onWatermarkUpload={handleWatermarkUpload}
       />
+
+      {/* ChatGPT OCR & Formatting Debug Console Modal */}
+      <ConsoleLogsModal open={showConsoleModal} onClose={() => setShowConsoleModal(false)} />
     </div>
   )
 }

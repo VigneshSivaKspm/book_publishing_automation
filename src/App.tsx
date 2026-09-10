@@ -14,7 +14,7 @@ import Dashboard from './pages/Dashboard'
 import Editor from './pages/Editor'
 import Login from './pages/Login'
 import Settings from './pages/Settings'
-import type { BookDocument, Page } from './types'
+import type { BookDocument, BookMode, Page } from './types'
 import { createNewBook } from './types'
 
 const LIBRARY_KEY = 'figma.library.v1'
@@ -373,13 +373,18 @@ function loadLibrary(): BookDocument[] {
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState(false)
   const [activePage, setActivePage] = useState<Page>('dashboard')
   const [showNewBook, setShowNewBook] = useState(false)
+  const [newBookMode, setNewBookMode] = useState<BookMode>('qa')
   const [showExport, setShowExport] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [activeBook, setActiveBook] = useState<BookDocument | null>(null)
   const [library, setLibrary] = useState<BookDocument[]>(() => loadLibrary())
+
+  const handleOpenNewBook = (mode: BookMode = 'qa') => {
+    setNewBookMode(mode)
+    setShowNewBook(true)
+  }
 
   useEffect(() => {
     try {
@@ -397,7 +402,7 @@ export default function App() {
       }
       if (!activeBook && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault()
-        setShowNewBook(true)
+        handleOpenNewBook('qa')
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
         e.preventDefault()
@@ -407,10 +412,6 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [activeBook])
-
-  if (!authed) {
-    return <Login onLogin={() => setAuthed(true)} />
-  }
 
   const handleCreate = (book: BookDocument) => {
     setLibrary((prev) => [book, ...prev.filter((b) => b.id !== book.id)])
@@ -465,17 +466,6 @@ export default function App() {
     switch (activePage) {
       case 'dashboard':
       case 'documents':
-        return (
-          <Dashboard
-            library={library}
-            onNavigate={setActivePage}
-            onExport={() => setShowExport(true)}
-            onCommand={() => setShowCommandPalette(true)}
-            onNewBook={() => setShowNewBook(true)}
-            onOpenBook={(book) => setActiveBook(book)}
-            onDeleteBook={handleDeleteBook}
-          />
-        )
       case 'create-new':
         return (
           <Dashboard
@@ -483,7 +473,7 @@ export default function App() {
             onNavigate={setActivePage}
             onExport={() => setShowExport(true)}
             onCommand={() => setShowCommandPalette(true)}
-            onNewBook={() => setShowNewBook(true)}
+            onNewBook={(mode) => handleOpenNewBook(mode)}
             onOpenBook={(book) => setActiveBook(book)}
             onDeleteBook={handleDeleteBook}
           />
@@ -496,24 +486,8 @@ export default function App() {
             onOpenBook={(book) => setActiveBook(book)}
           />
         )
-      case 'user-management':
-        return <UserManagementPanel />
-      case 'role-definitions':
-        return <RoleDefinitionsPanel />
-      case 'audit-logs':
-        return <AuditLogsPanel />
-      case 'workflows':
-        return <WorkflowsPanel />
-      case 'automation':
-        return <AutomationRulesPanel />
       case 'templates':
         return <TemplatesPanel />
-      case 'settings':
-        return (
-          <Settings
-            onBack={() => setActivePage('dashboard')}
-          />
-        )
       default:
         return (
           <Dashboard
@@ -521,7 +495,7 @@ export default function App() {
             onNavigate={setActivePage}
             onExport={() => setShowExport(true)}
             onCommand={() => setShowCommandPalette(true)}
-            onNewBook={() => setShowNewBook(true)}
+            onNewBook={(mode) => handleOpenNewBook(mode)}
             onOpenBook={(book) => setActiveBook(book)}
             onDeleteBook={handleDeleteBook}
           />
@@ -536,7 +510,7 @@ export default function App() {
         onNavigate={setActivePage}
         onExport={() => setShowExport(true)}
         onCommandPalette={() => setShowCommandPalette(true)}
-        onNewBook={() => setShowNewBook(true)}
+        onNewBook={(mode) => handleOpenNewBook(mode)}
       />
       <main className="flex-1 h-full overflow-hidden relative">
         {renderCurrentPage()}
@@ -546,6 +520,7 @@ export default function App() {
         open={showNewBook}
         onClose={() => setShowNewBook(false)}
         onCreate={handleCreate}
+        initialMode={newBookMode}
       />
       <ExportModal
         open={showExport}

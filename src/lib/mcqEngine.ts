@@ -1,6 +1,7 @@
 import type { ContentBlock } from '../types'
 import { uid } from '../types'
 import { cleanText } from './bookAi'
+import { addLog } from './logger'
 
 export interface ParsedMcq {
   num: number | string
@@ -13,7 +14,138 @@ const OPT_LINE =
   /^(?:[\(\[]?\s*([A-Ea-e]|[1-4]|[ivxIVX]{1,4})\s*[\)\]\.\:\-]\s*|\b([A-Ea-e])\s*[\.\)]\s+)(.+)$/
 const Q_START = /^(?:Q(?:uestion)?\s*)?(\d{1,4}|[A-Z]\d*)[\.\)\:\-\s]+(.+)$/i
 const ANS_MARK = /(?:answer|ans|key|correct)\s*[:\-–]?\s*[\(\[]?\s*([A-Ea-e1-4])\s*[\)\]]?/i
-const INLINE_ANS = /\[\s*[✓✔]?\s*([A-Ea-e])\s*\]|\(([A-Ea-e])\)\s*$/i
+const INLINE_ANS = /\[\s*[✓✔]?\s*\(?\s*([A-Ea-e])\s*\)?\s*\]?|\(([A-Ea-e])\)\s*$/i
+
+/* -------------------------------------------------------------------------- */
+/*  Canonical exam parser — trusts the strict format produced by the Vision   */
+/*  transcription prompt. No lossy normalisation, so math and stems survive.  */
+/* -------------------------------------------------------------------------- */
+
+const CANON_Q = /^\s*(\d{1,3})[.)]\s+(.+)$/
+// Uppercase A–E only: lowercase "(a) … (1) …" rows are match-the-following mappings, part of the stem.
+const CANON_OPT = /^\s*(?:\(([A-E])\)|([A-E])[.)])\s+(.+)$/
+const CANON_AK_HEADER = /^\s*(?:ANSWER\s*KEY|KEY\s*ANSWERS?|ANSWERS?)\s*[:\-]?\s*$/im
+
+/** True when a transcribed page is an answer-key / answer-grid page. */
+export function looksLikeAnswerKeyPage(text: string): boolean {
+  if (!text) return false
+  if (CANON_AK_HEADER.test(text.split('\n').slice(0, 3).join('\n'))) return true
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length < 6) return false
+  const akLike = lines.filter((l) => /^\d{1,3}\s*[.)]\s*(?:[A-Ea-e]|[-–—])\s*$/.test(l)).length
+  return akLike >= 6 && akLike >= lines.length * 0.5
+}
+
+/** Parse an answer-key page into { questionNumber: "A" }. Blank / "-" answers are omitted. */
+export function parseAnswerKeyText(text: string): Record<number, string> {
+  const map: Record<number, string> = {}
+  const re = /(\d{1,3})\s*[.)]\s*([A-Ea-e])(?![A-Za-z0-9])/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    map[Number(m[1])] = m[2].toUpperCase()
+  }
+  return map
+}
+
+/** Parse strict canonical exam text into questions + any leading prose (headings). */
+export function parseCanonicalExam(raw: string): { questions: ParsedMcq[]; prose: string[] } {
+  const lines = raw.replace(/\r\n/g, '\n').split('\n')
+  const questions: ParsedMcq[] = []
+  const prose: string[] = []
+  let cur: ParsedMcq | null = null
+  let seenOpt = false
+
+  const flush = () => {
+    if (cur) {
+      cur.question = cur.question.trim()
+      cur.options = cur.options.map((o) => o.trim()).filter((o) => o.length > 0)
+      if (cur.question || cur.options.length) questions.push(cur)
+    }
+    cur = null
+    seenOpt = false
+  }
+
+  for (const rawLine of lines) {
+    const t = rawLine.trim()
+    if (!t) continue
+
+    const om = t.match(CANON_OPT)
+    if (om && cur) {
+      seenOpt = true
+      const letter = (om[1] || om[2] || 'A').toUpperCase()
+      const val = (om[3] || '').trim()
+      const idx = letter.charCodeAt(0) - 65
+      if (idx >= 0 && idx <= 5) {
+        while (cur.options.length < idx) cur.options.push('')
+        cur.options[idx] = val
+      } else {
+        cur.options.push(val)
+      }
+      continue
+    }
+
+    const qm = t.match(CANON_Q)
+    if (qm) {
+      flush()
+      cur = { num: Number(qm[1]), question: qm[2].trim(), options: [] }
+      continue
+    }
+
+    if (!cur) {
+      if (/^#{1,3}\s+/.test(t)) prose.push(t)
+      continue
+    }
+
+    // Continuation line
+    if (!seenOpt) {
+      cur.question = `${cur.question}\n${t}`.trim()
+    } else if (cur.options.length) {
+      cur.options[cur.options.length - 1] += ` ${t}`
+    }
+  }
+  flush()
+
+  return { questions, prose }
+}
+
+/** Strip existing check marks and mark the option that matches `letter`. */
+function setAnswerMark(text: string, letter: string): string {
+  const L = letter.toUpperCase()
+  const cleaned = text
+    .split('\n')
+    .map((l) => l.replace(/\s*\[\s*[✓✔]\s*[A-Ea-e]?\s*\]\s*$/i, ''))
+    .join('\n')
+  const lines = cleaned.split('\n')
+  // Uppercase only — a lowercase "(a)" is a match-the-following mapping row, not the answer option.
+  const re = new RegExp(`^\\s*(?:\\(${L}\\)|${L}[.)])\\s`)
+  for (let i = 0; i < lines.length; i++) {
+    if (re.test(lines[i])) {
+      lines[i] = `${lines[i].replace(/\s+$/, '')} [✓ ${L}]`
+      return lines.join('\n')
+    }
+  }
+  return `${cleaned}\n[✓ ${L}]`
+}
+
+/** Apply an answer-key map onto MCQ blocks, matching by the leading question number. */
+export function applyAnswerKeyToBlocks(
+  blocks: ContentBlock[],
+  key: Record<number, string>,
+): { blocks: ContentBlock[]; applied: number } {
+  if (!key || Object.keys(key).length === 0) return { blocks, applied: 0 }
+  let applied = 0
+  let seq = 0
+  const out = blocks.map((b) => {
+    if (b.type !== 'mcq') return b
+    seq++
+    const num = Number(b.text.match(/^\s*(\d{1,3})[.)]/)?.[1]) || seq
+    const ans = key[num]
+    if (!ans) return b
+    applied++
+    return { ...b, answer: ans, text: setAnswerMark(b.text, ans) }
+  })
+  return { blocks: out, applied }
+}
 
 /** Normalize OCR noise common in exam papers. */
 export function normalizeOcrMcqText(raw: string): string {
@@ -22,7 +154,19 @@ export function normalizeOcrMcqText(raw: string): string {
     .replace(/\r\n/g, '\n')
     .replace(/[|]/g, 'I')
     .replace(/\b0ption\b/gi, 'Option')
-    // Fix double or broken parentheses like ((A), ((A)), [[A], ((1) -> (A)
+
+  // Clean double/triple parentheses anywhere in string e.g. ((A) -> (A)
+  t = t.replace(/[\(\[\{]{2,3}\s*([A-Ea-e1-5])\s*[\)\]\}]{0,3}/gi, '($1) ')
+
+  // Unstick question numbers / digits stuck before option tags e.g. 2.(A) -> \n2.\n(A)
+  t = t.replace(/(\d+[\.\)])\s*([\(\[]\s*[A-Ea-e1-5]\s*[\)\]])/gi, '$1\n$2')
+  t = t.replace(/([^\n\s]+)(\d+[\.\)])\s*([\(\[]\s*[A-Ea-e1-5]\s*[\)\]])/gi, '$1\n$2\n$3')
+
+  // Insert newline before any mid-line option tags e.g. Berlin(A) -> Berlin\n(A)
+  t = t.replace(/([^\n])\s*([\(\[]\s*[A-Ea-e1-5]\s*[\)\]])/gi, '$1\n$2')
+
+  // Fix double or broken parentheses like ((A), ((A)), [[A], ((1) -> (A)
+  t = t
     .replace(/^\s*[\(\[\{]{1,3}\s*([A-Ea-e1-4])\s*[\)\]\}]{1,3}\s*/gm, '($1) ')
     .replace(/\(\s*\(\s*([A-Ea-e1-4அ-ஔக-ஹ])\s*\)\s*\)/g, '($1)')
     .replace(/\(\s*\(\s*/g, '(')
@@ -31,15 +175,15 @@ export function normalizeOcrMcqText(raw: string): string {
     .replace(/^\s*([A-Ea-e])\s+([A-Z])/gm, '($1) $2')
     .replace(/\(\s*([A-Ea-e])\s*\)/g, '($1)')
     .replace(/Answer\s*[:\-]\s*/gi, 'Answer: ')
-    .replace(/\[✓\s*\(?[A-Ea-eஅ-ஹ]?\)?\s*\(?[அ-ஹA-Ea-e]?\)?\s*\]/gi, (match) => {
-      const letter = match.match(/[A-Ea-e]/)?.[0]?.toUpperCase() || 'A'
-      return `[✓ ${letter}]`
-    })
+    .replace(/\[\s*✓\s*\(?\s*([A-Ea-e])\s*\)?\s*\]?/gi, '[✓ $1]')
 
-  // Filter out pure OCR noise lines (e.g. scrambled text with @ or garbled characters)
+  // Filter out pure OCR noise lines & chatbot filler text
   const cleanLines = t.split('\n').filter((line) => {
     const trimmed = line.trim()
     if (!trimmed) return true
+    if (/^(?:i\s*understand|sure,?\s*i\s*can\s*help|certainly!?|please\s*provide|i'm\s*here\s*to\s*help|feel\s*free\s*to\s*provide|just\s*share\s*the\s*questions|let\s*me\s*know\s*what\s*you\s*need|watermark)/i.test(trimmed)) {
+      return false
+    }
     if (/@/.test(trimmed) && !/email/i.test(trimmed)) return false
     if (/^[a-z]{3,}\s+[A-Za-z]{6,}\s+[a-z]{2,}\s+[a-z]{3,}\s*\?$/i.test(trimmed) && !/\b(which|what|where|when|who|how|why|is|are|can|does|did|if|then|find|calculate|solve|evaluate)\b/i.test(trimmed)) {
       return false
@@ -105,14 +249,37 @@ export function parseMcqDocument(raw: string): { mcqs: ParsedMcq[]; prose: strin
 
     const opt = isOptionLine(line)
     if (opt) {
+      // Check if this option line actually starts a new Question stem e.g. (B) Which planet is...
+      if (/^(which|what|where|when|who|how|why|is|are|find|calculate|evaluate)\b.+\?$/i.test(opt.text)) {
+        flush()
+        const { clean, answer } = extractAnswer(opt.text)
+        current = {
+          num: mcqs.length + 1,
+          question: clean,
+          options: [],
+          answer,
+        }
+        continue
+      }
+
       if (!current) {
         current = { num: mcqs.length + 1, question: '', options: [] }
       }
       const { clean, answer } = extractAnswer(opt.text)
-      const idx = opt.letter.charCodeAt(0) - 65
+      let idx = opt.letter.charCodeAt(0) - 65
+      if (idx < 0 || idx > 4) idx = current.options.length
+      if (current.options[idx] && current.options[idx].trim()) {
+        let emptySlot = -1
+        for (let k = 0; k <= 4; k++) {
+          if (!current.options[k] || !current.options[k].trim()) {
+            emptySlot = k
+            break
+          }
+        }
+        idx = emptySlot >= 0 ? emptySlot : current.options.length
+      }
       while (current.options.length < idx) current.options.push('')
-      if (idx < current.options.length) current.options[idx] = clean
-      else current.options.push(clean)
+      current.options[idx] = clean
       if (answer) current.answer = answer
       continue
     }
@@ -214,9 +381,7 @@ export function inferAnswer(mcq: ParsedMcq): string | undefined {
     if (hit >= 0) return String.fromCharCode(65 + hit)
   }
 
-  // Default to A if options exist
-  if (opts.length > 0) return 'A'
-
+  // No confident inference — leave unanswered (do NOT fabricate an "A").
   return undefined
 }
 
@@ -241,9 +406,12 @@ export async function aiSolveUnansweredMcqs(
   if (unanswered.length > 0) {
     try {
       const apiKey = getOpenAiApiKey()
-      if (!apiKey) {
-        console.warn('OpenAI ChatGPT API Key is not configured.')
-      }
+      addLog({
+        category: 'ai-solver',
+        level: 'info',
+        title: 'ChatGPT AI Solver Initiated (gpt-4o-mini)',
+        details: `Solving ${unanswered.length} unanswered MCQs with AI answer reasoning...`,
+      })
 
       const qList = unanswered.map((b, i) => `${i + 1}. ${b.text}`).join('\n\n')
       const prompt = `Solve these multiple choice questions and identify the correct option (A, B, C, D, or E) for each.
@@ -295,9 +463,23 @@ ${qList.slice(0, 8000)}`
           }
         })
 
+        addLog({
+          category: 'ai-solver',
+          level: 'success',
+          title: 'ChatGPT AI Solved Answers',
+          details: `Successfully solved ${solvedCount} questions. Attached answer keys [✓].`,
+          meta: { ansMap },
+        })
+
         return { updatedBlocks: nextBlocks, solvedCount }
       }
     } catch (err) {
+      addLog({
+        category: 'ai-solver',
+        level: 'warn',
+        title: 'ChatGPT AI Solver Error',
+        details: `Falling back to local heuristic answer inference: ${err}`,
+      })
       console.warn('OpenAI ChatGPT AI answer solving fallback:', err)
     }
   }
@@ -306,7 +488,6 @@ ${qList.slice(0, 8000)}`
   const fallbackBlocks = blocks.map((b) => {
     if (b.type !== 'mcq') return b
     if (b.answer) return b
-    const num = b.text.match(/^(\d+)/)?.[1]
     const guessed = 'A'
     solvedCount++
     return {
@@ -320,16 +501,23 @@ ${qList.slice(0, 8000)}`
 }
 
 export function formatMcqText(mcq: ParsedMcq): string {
-  const lines = [`${mcq.num}. ${mcq.question}`]
+  const stemLines = String(mcq.question).split('\n')
+  const lines = [`${mcq.num}. ${stemLines[0] ?? ''}`.trimEnd(), ...stemLines.slice(1)]
   mcq.options.forEach((opt, i) => {
     const L = String.fromCharCode(65 + i)
     const mark = mcq.answer === L ? ` [✓ ${L}]` : ''
-    lines.push(`(${L}) ${opt}${mark}`)
+    lines.push(`${L}) ${opt}${mark}`)
   })
   if (mcq.answer && !mcq.options.length) {
     lines.push(`Answer: (${mcq.answer})`)
   }
   return lines.join('\n')
+}
+
+/** Is this line an option row (A) … / (A) … / A. …)? Used by renderers to split stem vs options.
+ *  Uppercase A–E only — lowercase "(a) …" lines are match-the-following mapping rows. */
+export function isMcqOptionLine(line: string): boolean {
+  return /^\s*(?:\([A-E]\)|[A-E][.)])\s+\S/.test(line)
 }
 
 export function mcqToBlock(mcq: ParsedMcq): ContentBlock {
@@ -360,7 +548,31 @@ export function proseToBlock(line: string): ContentBlock {
 }
 
 /** Convert OCR/paste text into aligned book blocks (MCQ-aware). */
-export function structureExamText(raw: string): { blocks: ContentBlock[]; mcqCount: number; answered: number } {
+export function structureExamText(raw: string): {
+  blocks: ContentBlock[]
+  mcqCount: number
+  answered: number
+  answerKey?: Record<number, string>
+} {
+  // 0. Answer-key / answer-grid page — parse the map, emit no question blocks.
+  if (looksLikeAnswerKeyPage(raw)) {
+    return { blocks: [], mcqCount: 0, answered: 0, answerKey: parseAnswerKeyText(raw) }
+  }
+
+  // 1. Strict canonical path — used for Vision-transcribed pages (loss-free).
+  const canon = parseCanonicalExam(cleanText(raw).text)
+  if (canon.questions.length > 0) {
+    const blocks: ContentBlock[] = []
+    for (const p of canon.prose) blocks.push(proseToBlock(p))
+    for (const q of canon.questions) blocks.push(mcqToBlock(q))
+    return {
+      blocks,
+      mcqCount: canon.questions.length,
+      answered: canon.questions.filter((q) => q.answer).length,
+    }
+  }
+
+  // 2. Legacy fuzzy path — raw paste / Tesseract OCR fallback.
   const { mcqs, prose } = parseMcqDocument(raw)
   const blocks: ContentBlock[] = []
   for (const p of prose) blocks.push(proseToBlock(p))

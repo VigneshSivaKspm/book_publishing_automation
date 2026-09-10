@@ -62,6 +62,7 @@ export type BlockType =
   | 'image'
   | 'math'
   | 'list'
+  | 'table'
   | 'spacer'
   | 'mcq'
 
@@ -207,10 +208,11 @@ export function createNewBook(
       middleRightText: 'Economics',
       alternatingHeaders: true,
       watermarkEnabled: true,
+      watermarkImage: '/logo.jpeg',
       watermarkText: 'KARTHIKEYAN ANALYSIS STUDY CIRCLE',
       watermarkOpacity: 0.12,
       watermarkScale: 0.85,
-      pageNumberStyle: 'bracket',
+      pageNumberStyle: 'production-tab',
       autoGenerateAnswerKey: true,
     },
     pages: [

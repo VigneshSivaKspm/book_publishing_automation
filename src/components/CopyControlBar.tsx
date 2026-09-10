@@ -4,7 +4,6 @@ import {
   copyTextToClipboard,
   extractActivePageDomText,
   extractBodyContentText,
-  extractFooterText,
   extractFullDocumentText,
   extractHeaderText,
 } from '../lib/documentCopy'
@@ -18,23 +17,31 @@ interface CopyControlBarProps {
   className?: string
 }
 
-export default function CopyControlBar({ book, activePage, activePageRef, bodyContentRef, onNotify, className = '' }: CopyControlBarProps) {
-  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+export default function CopyControlBar({
+  book,
+  activePage,
+  activePageRef,
+  bodyContentRef,
+  onNotify,
+  className = '',
+}: CopyControlBarProps) {
+  const [copiedLabel, setCopiedLabel] = useState<string | null>(null)
   const [openDropdown, setOpenDropdown] = useState(false)
 
-  const executeCopy = async (key: string, text: string, label: string) => {
+  const executeCopy = async (text: string, label: string) => {
     if (!text || !text.trim()) {
       onNotify(`No content available for ${label}`)
       return
     }
     const ok = await copyTextToClipboard(text)
     if (ok) {
-      setCopiedKey(key)
-      onNotify(`${label} copied to clipboard!`)
-      setTimeout(() => setCopiedKey(null), 2000)
+      setCopiedLabel(label)
+      onNotify(`${label} copied!`)
+      setTimeout(() => setCopiedLabel(null), 2000)
     } else {
       onNotify(`Failed to copy ${label.toLowerCase()}`)
     }
+    setOpenDropdown(false)
   }
 
   const handleCopyHeader = async () => {
@@ -49,10 +56,9 @@ export default function CopyControlBar({ book, activePage, activePageRef, bodyCo
       if (!headerText) {
         headerText = extractHeaderText(book)
       }
-      await executeCopy('header', headerText, 'Header Metadata')
-    } catch (err) {
-      console.error('Failed to copy header: ', err)
-      await executeCopy('header', extractHeaderText(book), 'Header Metadata')
+      await executeCopy(headerText, 'Header Metadata')
+    } catch {
+      await executeCopy(extractHeaderText(book), 'Header Metadata')
     }
   }
 
@@ -63,171 +69,94 @@ export default function CopyControlBar({ book, activePage, activePageRef, bodyCo
       if (!pageText && activePage) {
         pageText = extractBodyContentText([activePage])
       }
-      await executeCopy('body-active', pageText, `Page ${pageNum} Content`)
-    } catch (err) {
-      console.error('Failed to copy active page content: ', err)
+      await executeCopy(pageText, `Page ${pageNum} Content`)
+    } catch {
       const fallbackText = activePage ? extractBodyContentText([activePage]) : ''
-      await executeCopy('body-active', fallbackText, `Page ${pageNum} Content`)
+      await executeCopy(fallbackText, `Page ${pageNum} Content`)
     }
   }
 
   const handleCopyBodyContent = async () => {
     try {
-      const bodyNode = document.querySelector('.page-body-container') as HTMLElement | null
-      let bodyText = ''
-      if (bodyNode) {
-        const clone = bodyNode.cloneNode(true) as HTMLElement
-        clone
-          .querySelectorAll('.floating-toolbar, .formatting-bar, .no-copy, .select-none, button, select')
-          .forEach((el) => el.remove())
-        bodyText = (clone.innerText || clone.textContent || '')
-          .replace(/\[\s*[✓✔]?\s*\(?[A-Ea-e1-4?]?\)?\s*\]/gi, '')
-          .replace(/\s*Answer\s*[:\-]\s*\(?[A-Ea-e1-4]\)?/gi, '')
-          .trim()
-      }
-      if (!bodyText) {
-        bodyText = extractBodyContentText(book.pages, { cleanAnswers: true })
-      }
-      await executeCopy('body-all', bodyText, 'Body Content')
-    } catch (err) {
-      console.error('Failed to copy body content: ', err)
-      await executeCopy('body-all', extractBodyContentText(book.pages, { cleanAnswers: true }), 'Body Content')
+      const bodyText = extractBodyContentText(book.pages, { cleanAnswers: true })
+      await executeCopy(bodyText, 'Body Content')
+    } catch {
+      await executeCopy(extractBodyContentText(book.pages, { cleanAnswers: true }), 'Body Content')
     }
   }
 
   const handleCopyFullDocument = async () => {
     try {
       const fullText = extractFullDocumentText(book)
-      await executeCopy('full', fullText, 'Full Document')
-    } catch (err) {
-      console.error('Failed to copy full document: ', err)
+      await executeCopy(fullText, 'Full Document')
+    } catch {
       onNotify('Failed to copy full document')
     }
   }
 
   return (
-    <div className={`flex items-center gap-1.5 flex-wrap select-none ${className}`}>
-      {/* 1. Copy Header Only */}
+    <div className={`relative inline-block text-left select-none ${className}`}>
       <button
         type="button"
-        onClick={handleCopyHeader}
-        className={`px-2.5 py-1.5 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 transition-all border ${
-          copiedKey === 'header'
-            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-            : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
+        onClick={() => setOpenDropdown((v) => !v)}
+        className={`px-3 py-1 rounded-none text-[11.5px] font-bold flex items-center gap-1.5 transition-all border ${
+          copiedLabel
+            ? 'bg-slate-900 text-white border-slate-900'
+            : 'bg-white text-slate-800 hover:bg-slate-50 border-slate-300'
         }`}
-        title="Copy only Header Metadata (Title, Chapter No, Institution)"
+        title="Copy Document Text Options"
       >
-        <span>📋</span>
-        <span>{copiedKey === 'header' ? 'Header Copied!' : 'Copy Header Only'}</span>
+        <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+        </svg>
+        <span>{copiedLabel ? `${copiedLabel} Copied!` : 'Copy Content'}</span>
+        <svg className="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
-      {/* 2. Copy Active Page Content */}
-      <button
-        type="button"
-        onClick={handleCopyActivePage}
-        className={`px-2.5 py-1.5 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 transition-all border ${
-          copiedKey === 'body-active'
-            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-            : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
-        }`}
-        title={`Copy Page ${activePage?.number || 1} Content Only`}
-      >
-        <span>📄</span>
-        <span>{copiedKey === 'body-active' ? `Page ${activePage?.number || 1} Copied!` : `Copy Page ${activePage?.number || 1}`}</span>
-      </button>
-
-      {/* 3. Copy Body Content */}
-      <button
-        type="button"
-        onClick={handleCopyBodyContent}
-        className={`px-2.5 py-1.5 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 transition-all border ${
-          copiedKey === 'body-all'
-            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-            : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
-        }`}
-        title="Copy Main Body Content (All Questions & Paragraphs)"
-      >
-        <span>📝</span>
-        <span>{copiedKey === 'body-all' ? 'Body Copied!' : 'Copy Body Content'}</span>
-      </button>
-
-      {/* 4. Copy Full Document */}
-      <button
-        type="button"
-        onClick={handleCopyFullDocument}
-        className={`px-3 py-1.5 rounded-lg text-[12px] font-bold text-white flex items-center gap-1.5 transition-all shadow-sm ${
-          copiedKey === 'full'
-            ? 'bg-emerald-600'
-            : 'bg-gradient-to-r from-teal-700 to-cyan-700 hover:from-teal-800 hover:to-cyan-800'
-        }`}
-        title="Copy Entire Document [Header + Body + Footer/Answer Key]"
-      >
-        <span>📄</span>
-        <span>{copiedKey === 'full' ? 'Full Document Copied!' : 'Copy Full Document'}</span>
-      </button>
-
-      {/* Dropdown Options for Active Page or Clean Questions */}
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setOpenDropdown((v) => !v)}
-          className="px-2 py-1.5 rounded-lg text-[12px] font-medium text-slate-600 hover:bg-slate-200 border border-slate-300"
-          title="More Extraction Options"
+      {openDropdown && (
+        <div
+          className="absolute left-0 top-full mt-1 w-56 rounded-none bg-white shadow-xl border border-slate-300 z-50 p-1 text-[12px] space-y-0.5"
+          onClick={() => setOpenDropdown(false)}
         >
-          ▼
-        </button>
-
-        {openDropdown && (
-          <div
-            className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white shadow-xl border border-slate-200 z-50 p-1.5 text-[12px] space-y-1"
-            onClick={() => setOpenDropdown(false)}
+          <button
+            type="button"
+            onClick={handleCopyFullDocument}
+            className="w-full text-left px-3 py-1.5 rounded-none hover:bg-slate-100 font-bold text-slate-900 flex items-center justify-between border-b border-slate-100"
           >
-            {activePage && (
-              <button
-                type="button"
-                onClick={() =>
-                  executeCopy(
-                    'body-active',
-                    extractBodyContentText([activePage]),
-                    `Page ${activePage.number} Content`,
-                  )
-                }
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-medium text-slate-700 flex items-center justify-between"
-              >
-                <span>Copy Page {activePage.number} Only</span>
-                <span className="text-[10px] text-slate-400">Page {activePage.number}</span>
-              </button>
-            )}
+            <span>Copy Full Document</span>
+            <span className="text-[9.5px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-none font-extrabold border border-slate-200">All</span>
+          </button>
 
-            <button
-              type="button"
-              onClick={() =>
-                executeCopy(
-                  'body-clean',
-                  extractBodyContentText(book.pages, { cleanAnswers: true }),
-                  'Questions (Without Answers)',
-                )
-              }
-              className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-medium text-slate-700 flex items-center justify-between"
-            >
-              <span>Copy Questions Only</span>
-              <span className="text-[10px] text-slate-400">No Answers</span>
-            </button>
+          <button
+            type="button"
+            onClick={handleCopyActivePage}
+            className="w-full text-left px-3 py-1.5 rounded-none hover:bg-slate-100 font-medium text-slate-800 flex items-center justify-between"
+          >
+            <span>Copy Page {activePage?.number || 1} Only</span>
+            <span className="text-[10px] text-slate-400">Current</span>
+          </button>
 
-            <button
-              type="button"
-              onClick={() =>
-                executeCopy('footer', extractFooterText(book), 'Footer & Answer Key')
-              }
-              className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 font-medium text-slate-700 flex items-center justify-between"
-            >
-              <span>Copy Footer &amp; Answer Key</span>
-              <span className="text-[10px] text-slate-400">Key Table</span>
-            </button>
-          </div>
-        )}
-      </div>
+          <button
+            type="button"
+            onClick={handleCopyBodyContent}
+            className="w-full text-left px-3 py-1.5 rounded-none hover:bg-slate-100 font-medium text-slate-800 flex items-center justify-between"
+          >
+            <span>Copy Body Text</span>
+            <span className="text-[10px] text-slate-400">No Key</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopyHeader}
+            className="w-full text-left px-3 py-1.5 rounded-none hover:bg-slate-100 font-medium text-slate-800 flex items-center justify-between"
+          >
+            <span>Copy Header Info</span>
+            <span className="text-[10px] text-slate-400">Meta</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }
