@@ -21,7 +21,18 @@ import {
   reflowBookOverflow,
   packBlocksIntoPages,
 } from "../lib/bookAi";
-import { structureDocumentText, parseMarkdownTable } from "../lib/docStructure";
+import {
+  structureDocumentText,
+  parseMarkdownTable,
+  joinPageBlocks,
+} from "../lib/docStructure";
+import {
+  BOOK_TYPE,
+  classifyHeading,
+  defaultBlockPt,
+  ptToPx,
+  splitListMarker,
+} from "../lib/bookStyle";
 import { extractChapterMeta } from "../lib/chapterMeta";
 import {
   callOpenAiDocText,
@@ -47,20 +58,15 @@ import {
   stripInlineAnswerTags,
 } from "../lib/mcqEngine";
 import {
-  FONT_PRESETS,
   getPreset,
   hydrateCustomFonts,
-  importFontFile,
-  importFontPack,
-  importFontSettingsFile,
-  exportFontFile,
-  exportFontPack,
-  exportFontSettings,
+  isCustomFamily,
   listCustomFonts,
-  removeCustomFont,
+  onFontsChanged,
   resolveBodyStack,
   type CustomFontRecord,
 } from "../lib/fonts";
+import FontsPanel from "../components/FontsPanel";
 import "katex/dist/katex.min.css";
 
 interface BookEditorProps {
@@ -208,7 +214,6 @@ export default function BookEditor({
   const [activePageId, setActivePageId] = useState(book.pages[0]?.id ?? "");
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [pagesOpen, setPagesOpen] = useState(true);
   const [busy, setBusy] = useState(false);
   const [ocrPct, setOcrPct] = useState<number | null>(null);
   const [ocrStatusText, setOcrStatusText] = useState<string>(
@@ -221,7 +226,6 @@ export default function BookEditor({
   const [tips, setTips] = useState<string[]>([]);
   const [showHfModal, setShowHfModal] = useState(false);
   const [showConsoleModal, setShowConsoleModal] = useState(false);
-  const [isAnswerKeySelected, setIsAnswerKeySelected] = useState(false);
   const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -435,6 +439,10 @@ export default function BookEditor({
     return rows;
   }, [allMcqItems]);
 
+  const showAnswerKey =
+    book.headerFooter.autoGenerateAnswerKey !== false &&
+    allMcqItems.length > 0;
+
   const cycleMcqAnswer = (blockId: string) => {
     const targetBlock = book.pages
       .flatMap((p) => p.blocks)
@@ -507,13 +515,13 @@ export default function BookEditor({
     );
   };
 
-  const [customFonts, setCustomFonts] = useState<CustomFontRecord[]>([]);
+  const [customFonts, setCustomFonts] = useState<CustomFontRecord[]>(() =>
+    listCustomFonts(),
+  );
+  const [showFontsPanel, setShowFontsPanel] = useState(false);
   const fileImageRef = useRef<HTMLInputElement>(null);
   const fileOcrRef = useRef<HTMLInputElement>(null);
   const fileDocRef = useRef<HTMLInputElement>(null);
-  const fileFontRef = useRef<HTMLInputElement>(null);
-  const fileFontPackRef = useRef<HTMLInputElement>(null);
-  const fileFontSettingsRef = useRef<HTMLInputElement>(null);
   const activePageRef = useRef<HTMLDivElement>(null);
   const bodyContentRef = useRef<HTMLDivElement>(null);
   const historyRef = useRef<BookDocument[]>([cloneBook(book)]);
@@ -529,18 +537,19 @@ export default function BookEditor({
     book.pages.findIndex((p) => p.id === activePageId),
   );
   const activePage = book.pages[activeIndex] ?? book.pages[0];
+  const currentPageId = activePage?.id;
   const dim = PAPER_DIMENSIONS[book.paperSize];
   const stats = useMemo(() => estimateBookStats(book), [book]);
   const bodyFont = resolveBodyStack(book.fontId, book.customFontFamily);
-  const mathFont =
-    book.mathFontId?.startsWith("Custom_") ||
-    listCustomFonts().some((f) => f.id === book.mathFontId)
-      ? resolveBodyStack(book.mathFontId, book.mathFontId)
-      : getPreset(book.mathFontId).stack;
+  const mathFont = isCustomFamily(book.mathFontId)
+    ? resolveBodyStack(book.mathFontId, book.mathFontId)
+    : getPreset(book.mathFontId || "math-stix").stack;
+  // Referenced so the page re-renders when the font library changes.
+  void customFonts;
 
   useEffect(() => {
     loadKatex();
-    hydrateCustomFonts().then((fonts) => setCustomFonts(fonts));
+    hydrateCustomFonts().then((fonts) => setCustomFonts([...fonts]));
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
@@ -569,31 +578,6 @@ export default function BookEditor({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
-
-  const refreshFonts = () => setCustomFonts(listCustomFonts());
-
-  const fontPrefs = () => ({
-    fontId: book.fontId,
-    mathFontId: book.mathFontId,
-    customFontFamily: book.customFontFamily,
-    customFontLabel: book.customFontLabel,
-  });
-
-  const applyCustomAsBody = (f: CustomFontRecord) => {
-    commit(
-      {
-        ...book,
-        fontId: "custom",
-        customFontFamily: f.family,
-        customFontLabel: f.name,
-      },
-      `Body → ${f.name}`,
-    );
-  };
-
-  const applyCustomAsMath = (f: CustomFontRecord) => {
-    commit({ ...book, mathFontId: f.id }, `Math → ${f.name}`);
-  };
 
   useEffect(() => {
     if (!book.pages.find((p) => p.id === activePageId) && book.pages[0]) {
@@ -678,6 +662,186 @@ export default function BookEditor({
     onChange(cloneBook(historyRef.current[histIdxRef.current]));
     syncUndo();
   }, [onChange]);
+
+  /* Continuous flow: measure the rendered pages and move blocks between
+     neighbouring pages so each page fills to the bottom without overflowing.
+     Runs only while no block is being edited, and never adds undo steps. */
+  const [fontsTick, setFontsTick] = useState(0);
+  const reflowStepsRef = useRef(0);
+  useEffect(() => {
+    document.fonts?.ready.then(() => setFontsTick((t) => t + 1));
+    return onFontsChanged(() => {
+      setCustomFonts([...listCustomFonts()]);
+      document.fonts?.ready.then(() => setFontsTick((t) => t + 1));
+    });
+  }, []);
+  useEffect(() => {
+    // A newly chosen font changes line lengths: re-measure once it has loaded.
+    document.fonts?.ready.then(() => setFontsTick((t) => t + 1));
+  }, [bodyFont, mathFont]);
+
+  useEffect(() => {
+    if (selectedBlockId) return;
+    const timer = window.setTimeout(() => {
+      const cur = bookRef.current;
+      const cols = cur.headerFooter.layoutColumns || 2;
+      const isBlankPage = (p: BookPage) =>
+        p.blocks.every((b) => !b.text.trim() && !b.imageUrl && b.type !== "image");
+
+      type Measured = { el: HTMLElement; col: number; h: number };
+      const measure = (pageId: string) => {
+        const body = document.querySelector<HTMLElement>(
+          `[data-page-body="${pageId}"]`,
+        );
+        if (!body) return null;
+        const r = body.getBoundingClientRect();
+        const gap = parseFloat(getComputedStyle(body).columnGap) || 0;
+        const colW = (r.width - gap * (cols - 1)) / cols;
+        const items: Measured[] = Array.from(
+          body.querySelectorAll<HTMLElement>(":scope > [data-block-id]"),
+        ).map((el) => {
+          const br = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return {
+            el,
+            col: Math.floor((br.left - r.left + 2) / (colW + gap)),
+            h:
+              br.height +
+              (parseFloat(cs.marginTop) || 0) +
+              (parseFloat(cs.marginBottom) || 0),
+          };
+        });
+        return { rect: r, items };
+      };
+
+      const pages = cur.pages;
+      let next: BookPage[] | null = null;
+
+      for (let i = 0; i < pages.length && !next; i++) {
+        const m = measure(pages[i].id);
+        if (!m || m.items.length === 0) continue;
+
+        // 1) Overflow: push blocks that spilled past the last column forward.
+        const firstOver = m.items.findIndex(
+          (it, idx) =>
+            idx > 0 &&
+            (it.col >= cols ||
+              it.el.getBoundingClientRect().bottom > m.rect.bottom + 2),
+        );
+        if (firstOver > 0) {
+          const ids = new Set(
+            m.items.slice(firstOver).map((it) => it.el.dataset.blockId),
+          );
+          const moving = pages[i].blocks.filter((b) => ids.has(b.id));
+          const staying = pages[i].blocks.filter((b) => !ids.has(b.id));
+          if (!moving.length || !staying.length) continue;
+          next = pages.map((p) => ({ ...p }));
+          next[i] = { ...next[i], blocks: staying };
+          if (i + 1 < next.length && !isBlankPage(next[i + 1])) {
+            next[i + 1] = {
+              ...next[i + 1],
+              blocks: [...moving, ...next[i + 1].blocks],
+            };
+          } else {
+            next.splice(i + 1, 0, {
+              id: uid("page"),
+              number: 0,
+              blocks: moving,
+            });
+          }
+          break;
+        }
+
+        // 2) Free space: pull leading blocks of the next page back up.
+        if (i + 1 >= pages.length || isBlankPage(pages[i + 1])) continue;
+        const nm = measure(pages[i + 1].id);
+        if (!nm || nm.items.length === 0) continue;
+        const colH = m.rect.height;
+        const last = m.items[m.items.length - 1];
+        let rem = m.rect.bottom - last.el.getBoundingClientRect().bottom - 4;
+        let spareCols = Math.max(0, cols - 1 - last.col);
+        let take = 0;
+        let split: ContentBlock[] | null = null;
+        for (const it of nm.items) {
+          if (it.h <= rem) {
+            rem -= it.h;
+          } else if (spareCols > 0 && it.h <= colH - 4) {
+            spareCols--;
+            rem = colH - 4 - it.h;
+          } else {
+            // Split a long paragraph by sentences to fill the leftover space.
+            const room = Math.max(rem, spareCols > 0 ? colH - 4 : 0);
+            const blk = pages[i + 1].blocks.find(
+              (b) => b.id === it.el.dataset.blockId,
+            );
+            if (blk?.type === "paragraph" && room >= 40 && !blk.text.includes("$")) {
+              const sentences =
+                blk.text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) ?? [];
+              const budget = blk.text.length * (room / it.h) * 0.8;
+              let used = 0;
+              let n = 0;
+              while (
+                n < sentences.length - 1 &&
+                used + sentences[n].length <= budget
+              ) {
+                used += sentences[n].length;
+                n++;
+              }
+              if (n > 0) {
+                split = [
+                  { ...blk, id: uid("blk"), text: sentences.slice(0, n).join("").trim() },
+                  { ...blk, id: uid("blk"), text: sentences.slice(n).join("").trim() },
+                ];
+              }
+            }
+            break;
+          }
+          take++;
+        }
+        if (take === 0 && !split) continue;
+        const src = pages[i + 1].blocks;
+        const takenIds = new Set(
+          nm.items.slice(0, take).map((it) => it.el.dataset.blockId),
+        );
+        const pulled = src.filter((b) => takenIds.has(b.id));
+        let rest = src.filter((b) => !takenIds.has(b.id));
+        if (split) {
+          const splitSrcId = nm.items[take]?.el.dataset.blockId;
+          rest = rest.map((b) => (b.id === splitSrcId ? split![1] : b));
+          pulled.push(split[0]);
+        }
+        next = pages.map((p) => ({ ...p }));
+        next[i] = { ...next[i], blocks: [...next[i].blocks, ...pulled] };
+        if (rest.some((b) => b.text.trim() || b.imageUrl || b.type === "image")) {
+          next[i + 1] = { ...next[i + 1], blocks: rest };
+        } else {
+          next.splice(i + 1, 1);
+        }
+      }
+
+      if (!next) {
+        reflowStepsRef.current = 0;
+        return;
+      }
+      if (++reflowStepsRef.current > 300) return; // safety stop
+      const stamped = normalizeBook({
+        ...cur,
+        pages: next.map((p, idx) => ({ ...p, number: idx + 1 })),
+        updatedAt: new Date().toISOString(),
+      });
+      historyRef.current[histIdxRef.current] = cloneBook(stamped);
+      onChange(stamped);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [rawBook, zoom, selectedBlockId, fontsTick, onChange]);
+
+  const scrollToPage = (id: string) => {
+    window.setTimeout(() => {
+      document
+        .querySelector(`[data-page-id="${id}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 30);
+  };
 
   const updatePage = (
     pageId: string,
@@ -830,6 +994,7 @@ export default function BookEditor({
     pages.splice(activeIndex + 1, 0, page);
     commit({ ...book, pages: pages.map((p, i) => ({ ...p, number: i + 1 })) });
     setActivePageId(page.id);
+    scrollToPage(page.id);
   };
 
   const deletePage = () => {
@@ -845,6 +1010,7 @@ export default function BookEditor({
     const n = Math.min(book.pages.length - 1, Math.max(0, activeIndex + d));
     setActivePageId(book.pages[n].id);
     setSelectedBlockId(null);
+    scrollToPage(book.pages[n].id);
   };
 
   const runAlign = async () => {
@@ -1229,6 +1395,10 @@ export default function BookEditor({
         outBlocks = outBlocks.slice(1);
       }
       const nextHf = { ...book.headerFooter };
+      if (isSyllabus) {
+        nextHf.layoutColumns = 1;
+        nextHf.pageNumberStyle = "bracket";
+      }
       if (cm?.title) {
         nextHf.chapterTitle = cm.title;
         nextHf.middleRightText = cm.title;
@@ -1380,13 +1550,13 @@ export default function BookEditor({
       let renumbered: BookPage[] = [];
 
       if (isSyllabus) {
-        const cols = book.headerFooter.layoutColumns || 2;
+        const cols = 1;
         const hasChapterBadge = !!(
           chapterMeta.number || book.headerFooter.chapterNumber
         );
-        const allScannedBlocks = contentPages
-          .flat()
-          .filter((b) => b.text.trim() || b.imageUrl || b.type === "image");
+        const allScannedBlocks = joinPageBlocks(contentPages).filter(
+          (b) => b.text.trim() || b.imageUrl || b.type === "image",
+        );
 
         let combinedBlocks: ContentBlock[] = [];
         if (isFreshBook) {
@@ -1441,6 +1611,12 @@ export default function BookEditor({
 
       // Fill the header badge / running title from the real document.
       const nextHeaderFooter = { ...book.headerFooter };
+      if (isSyllabus) {
+        // Study-material books print like the reference chapter: one wide
+        // column, section bars, and a centred "{ n }" page number.
+        nextHeaderFooter.layoutColumns = 1;
+        nextHeaderFooter.pageNumberStyle = "bracket";
+      }
       if (chapterMeta.title) {
         nextHeaderFooter.chapterTitle = chapterMeta.title;
         nextHeaderFooter.middleRightText = chapterMeta.title;
@@ -1481,75 +1657,6 @@ export default function BookEditor({
     } finally {
       setBusy(false);
       setOcrPct(null);
-    }
-  };
-
-  const handleFontUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    e.target.value = "";
-    if (!files?.length) return;
-    try {
-      let last: CustomFontRecord | null = null;
-      for (const file of Array.from(files)) {
-        last = await importFontFile(file);
-      }
-      refreshFonts();
-      if (last) {
-        applyCustomAsBody(last);
-        showToast(
-          files.length > 1
-            ? `${files.length} fonts imported`
-            : `Font “${last.name}” imported`,
-        );
-      }
-      setRibbon("stage2");
-    } catch {
-      showToast("Could not import font");
-    }
-  };
-
-  const handleFontPackImport = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    try {
-      const { count, prefs } = await importFontPack(file);
-      refreshFonts();
-      if (prefs?.fontId || prefs?.mathFontId) {
-        commit({
-          ...book,
-          fontId: prefs.fontId || book.fontId,
-          mathFontId: prefs.mathFontId || book.mathFontId,
-          customFontFamily: prefs.customFontFamily || book.customFontFamily,
-          customFontLabel: prefs.customFontLabel || book.customFontLabel,
-        });
-      }
-      showToast(`Imported ${count} font${count === 1 ? "" : "s"} from pack`);
-      setRibbon("stage2");
-    } catch {
-      showToast("Invalid font pack");
-    }
-  };
-
-  const handleFontSettingsImport = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    try {
-      const prefs = await importFontSettingsFile(file);
-      refreshFonts();
-      commit(
-        {
-          ...book,
-          fontId: prefs.fontId || book.fontId,
-          mathFontId: prefs.mathFontId || book.mathFontId,
-          customFontFamily: prefs.customFontFamily ?? book.customFontFamily,
-          customFontLabel: prefs.customFontLabel ?? book.customFontLabel,
-        },
-        "Font settings applied",
-      );
-    } catch {
-      showToast("Invalid settings file");
     }
   };
 
@@ -1847,6 +1954,15 @@ export default function BookEditor({
         >
           <span className="w-1.5 h-1.5 bg-emerald-400" />
           AI Logs
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowFontsPanel(true)}
+          className="px-2.5 py-1 rounded-none text-[11.5px] font-bold bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 transition-all"
+          title="Upload fonts and choose the text / math font"
+        >
+          Fonts
         </button>
 
         <button
@@ -2150,6 +2266,15 @@ export default function BookEditor({
         </div>
       </div>
 
+      {showFontsPanel && (
+        <FontsPanel
+          book={book}
+          onApply={(patch, msg) => commit({ ...bookRef.current, ...patch }, msg)}
+          onClose={() => setShowFontsPanel(false)}
+          onNotify={showToast}
+        />
+      )}
+
       {/* Professional OCR & Document Ingestion Progress Modal Overlay */}
       {ocrPct != null && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs animate-fade-in select-none">
@@ -2234,184 +2359,7 @@ export default function BookEditor({
         className="hidden"
         onChange={handleDocScan}
       />
-      <input
-        ref={fileFontRef}
-        type="file"
-        accept=".ttf,.otf,.woff,.woff2"
-        multiple
-        className="hidden"
-        onChange={handleFontUpload}
-      />
-      <input
-        ref={fileFontPackRef}
-        type="file"
-        accept=".json,application/json"
-        className="hidden"
-        onChange={handleFontPackImport}
-      />
-      <input
-        ref={fileFontSettingsRef}
-        type="file"
-        accept=".json,application/json"
-        className="hidden"
-        onChange={handleFontSettingsImport}
-      />
-
-      {ribbon === "stage2" && customFonts.length > 0 && (
-        <div
-          className="flex-shrink-0 flex items-center gap-2 px-3 py-2 overflow-x-auto"
-          style={{ background: "#F8FFFE", borderBottom: "1px solid #D1FAE5" }}
-        >
-          <span
-            className="text-[11px] font-semibold flex-shrink-0"
-            style={{ color: "#047857" }}
-          >
-            My fonts
-          </span>
-          {customFonts.map((f) => (
-            <div
-              key={f.id}
-              className="flex items-center gap-1 flex-shrink-0 rounded px-2 py-1"
-              style={{ background: "white", border: "1px solid #A7F3D0" }}
-            >
-              <span
-                className="text-[12px] font-medium max-w-[100px] truncate"
-                style={{
-                  color: "#065F46",
-                  fontFamily: `"${f.family}", sans-serif`,
-                }}
-              >
-                {f.name}
-              </span>
-              <button
-                type="button"
-                onClick={() => applyCustomAsBody(f)}
-                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                style={{ background: "#ECFDF5", color: "#047857" }}
-              >
-                Body
-              </button>
-              <button
-                type="button"
-                onClick={() => applyCustomAsMath(f)}
-                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                style={{ background: "#ECFDF5", color: "#047857" }}
-              >
-                Math
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  exportFontFile(f);
-                  showToast(`Exported ${f.name}`);
-                }}
-                className="text-[10px] px-1.5 py-0.5 rounded"
-                style={{ color: "#666" }}
-                title="Download font file"
-              >
-                Export
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  removeCustomFont(f.id);
-                  refreshFonts();
-                  if (book.customFontFamily === f.family) {
-                    commit({
-                      ...book,
-                      fontId: "english-serif",
-                      customFontFamily: undefined,
-                      customFontLabel: undefined,
-                    });
-                  }
-                  showToast(`Removed ${f.name}`);
-                }}
-                className="text-[10px] px-1.5 py-0.5 rounded"
-                style={{ color: "#DC2626" }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="flex-1 flex min-h-0">
-        {pagesOpen && (
-          <aside
-            className="w-[150px] flex-shrink-0 flex flex-col"
-            style={{ background: "#F7F7F7", borderRight: "1px solid #D8D8D8" }}
-          >
-            <div
-              className="px-3 py-2 flex justify-between"
-              style={{ borderBottom: "1px solid #E0E0E0" }}
-            >
-              <span
-                className="text-[11px] font-semibold"
-                style={{ color: "#666" }}
-              >
-                Pages
-              </span>
-              <button
-                onClick={addPage}
-                className="text-[16px] leading-none"
-                style={{ color: "#0E7490" }}
-              >
-                +
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto py-1">
-              {book.pages.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => {
-                    setActivePageId(p.id);
-                    setSelectedBlockId(null);
-                    setIsAnswerKeySelected(false);
-                  }}
-                  className="w-full text-left px-3 py-2 text-[12px]"
-                  style={{
-                    background:
-                      !isAnswerKeySelected && p.id === activePage?.id
-                        ? "#E6F4F7"
-                        : "transparent",
-                    color:
-                      !isAnswerKeySelected && p.id === activePage?.id
-                        ? "#0E7490"
-                        : "#444",
-                    fontWeight:
-                      !isAnswerKeySelected && p.id === activePage?.id
-                        ? 600
-                        : 400,
-                  }}
-                >
-                  Page {p.number}
-                </button>
-              ))}
-              {book.headerFooter.autoGenerateAnswerKey !== false &&
-                allMcqItems.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAnswerKeySelected(true);
-                      setSelectedBlockId(null);
-                    }}
-                    className="w-full text-left px-3 py-2 text-[11px] flex items-center gap-1.5 border-t border-slate-200 mt-1 font-semibold transition-all hover:bg-emerald-50"
-                    style={{
-                      background: isAnswerKeySelected
-                        ? "#ECFDF5"
-                        : "transparent",
-                      color: isAnswerKeySelected ? "#047857" : "#475569",
-                    }}
-                  >
-                    <span className="text-[13px]">🔑</span>
-                    <span>Answer Key</span>
-                  </button>
-                )}
-            </div>
-          </aside>
-        )}
-
         <div className="flex-1 overflow-auto relative">
           {tips.length > 0 && (
             <div
@@ -2440,184 +2388,30 @@ export default function BookEditor({
             </div>
           )}
 
-          <div className="flex justify-center py-8 px-4">
-            {isAnswerKeySelected ? (
-              /* Production Answer Key Page Live Preview (Matching Screenshot 4) */
-              <div
-                className="bg-white shadow-xl relative overflow-hidden flex flex-col select-none"
-                style={{
-                  width: dim.previewW * zoom,
-                  minHeight: dim.previewH * zoom,
-                  padding: `${28 * zoom}px ${36 * zoom}px`,
-                  fontFamily: bodyFont,
-                }}
-              >
-                {/* Background Watermark */}
-                {book.headerFooter.watermarkEnabled !== false && (
-                  <div
-                    className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden"
-                    style={{
-                      opacity: book.headerFooter.watermarkOpacity ?? 0.12,
-                    }}
-                  >
-                    <div
-                      className="flex items-center justify-center"
-                      style={{
-                        width: 340 * zoom,
-                        height: 340 * zoom,
-                        transform: `scale(${book.headerFooter.watermarkScale ?? 0.85})`,
-                        transformOrigin: "center center",
-                      }}
-                    >
-                      {book.headerFooter.watermarkImage ? (
-                        <img
-                          src={book.headerFooter.watermarkImage}
-                          alt="watermark"
-                          className="max-w-full max-h-full object-contain mx-auto my-auto"
-                        />
-                      ) : (
-                        <img
-                          src="/logo.jpeg"
-                          alt="watermark"
-                          className="max-w-full max-h-full object-contain mx-auto my-auto"
-                        />
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Middle Page Header */}
-                <div className="relative z-10 mb-2">
-                  <div className="flex justify-between items-center mb-1">
-                    <div
-                      className="bg-black text-white font-bold px-3 py-1 rounded"
-                      style={{
-                        fontSize: 10 * zoom,
-                        fontFamily: "'Source Serif 4', Georgia, serif",
-                      }}
-                    >
-                      {book.headerFooter.middleBoxText ||
-                        "Karthikeyan Analysis Study Circle"}
-                    </div>
-                    <div
-                      className="font-bold italic underline text-black"
-                      style={{
-                        fontSize: 12 * zoom,
-                        fontFamily: "'Source Serif 4', Georgia, serif",
-                      }}
-                    >
-                      {book.headerFooter.middleRightText ||
-                        book.headerFooter.chapterTitle ||
-                        book.title}
-                    </div>
-                  </div>
-                  <div className="w-full h-[1.5px] bg-black mb-3" />
-                </div>
-
-                {/* Answer Key Grid Body */}
-                <div className="flex-1 relative z-10 flex flex-col items-center pt-2">
-                  <div
-                    className="font-extrabold text-black tracking-widest text-center mb-3"
-                    style={{
-                      fontSize: 14 * zoom,
-                      fontFamily: "system-ui, sans-serif",
-                    }}
-                  >
-                    ANSWER KEY
-                  </div>
-                  <table
-                    className="w-full border-collapse"
-                    style={{ fontSize: 10.5 * zoom }}
-                  >
-                    <thead>
-                      <tr>
-                        <th
-                          colSpan={6}
-                          className="bg-slate-400 border border-slate-500 h-2"
-                        />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {answerKeyRows.map((row, rIdx) => (
-                        <tr key={rIdx}>
-                          {row.map((cell, cIdx) => {
-                            if (!cell) {
-                              return (
-                                <td
-                                  key={cIdx}
-                                  className="border border-slate-300 p-1.5 bg-white/50 text-center"
-                                />
-                              );
-                            }
-                            const isHighlight =
-                              cell.num === "7" || cell.num === "7.";
-                            return (
-                              <td
-                                key={cIdx}
-                                onClick={() => cycleMcqAnswer(cell.blockId)}
-                                className="border border-slate-400 p-1.5 text-center cursor-pointer hover:bg-emerald-50 transition-colors"
-                                style={{
-                                  width: "16.66%",
-                                  fontFamily:
-                                    "'Source Serif 4', Georgia, serif",
-                                  background: "rgba(255,255,255,0.7)",
-                                }}
-                                title="Click cell to toggle/cycle answer (A -> B -> C -> D -> E)"
-                              >
-                                <span
-                                  className={`font-bold mr-1 ${isHighlight ? "text-red-600 font-extrabold" : "text-slate-900"}`}
-                                >
-                                  {cell.num}.
-                                </span>
-                                <span className="font-extrabold text-slate-900">
-                                  {cell.answer}
-                                </span>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <p className="text-[10px] text-slate-400 mt-4 italic font-sans">
-                    💡 Click any answer cell above to toggle &amp; edit the
-                    answer directly
-                  </p>
-                </div>
-
-                {/* Footer Section */}
-                <div className="relative z-10 mt-auto pt-2">
-                  <div className="w-full h-[1.5px] bg-black mb-1" />
-                  <div className="flex justify-between items-center">
-                    <div
-                      className="font-bold text-black"
-                      style={{
-                        fontSize: 9.5 * zoom,
-                        fontFamily: "'Source Serif 4', Georgia, serif",
-                      }}
-                    >
-                      {book.headerFooter.footerLeft ||
-                        "Karthikeyan Analysis Learning Resources"}
-                    </div>
-                    <div
-                      className="bg-black text-white font-extrabold px-3 py-0.5 text-center"
-                      style={{ fontSize: 9.5 * zoom }}
-                    >
-                      {formatPageNumber(book.pages.length, book.headerFooter)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              activePage && (
+          <div
+            className="flex flex-col items-center gap-6 py-8 px-4"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setSelectedBlockId(null);
+            }}
+          >
+            {book.pages.map((pg, pgIdx) => {
+              const activePage = pg;
+              const activeIndex = pgIdx;
+              const isCurrent = pg.id === currentPageId;
+              return (
                 <div
-                  ref={activePageRef}
-                  id="active-page-canvas"
-                  className="page-canvas active bg-white shadow-xl relative overflow-hidden flex flex-col"
+                  key={pg.id}
+                  ref={isCurrent ? activePageRef : undefined}
+                  id={isCurrent ? "active-page-canvas" : undefined}
+                  data-page-id={pg.id}
+                  onMouseDownCapture={() => {
+                    if (!isCurrent) setActivePageId(pg.id);
+                  }}
+                  className={`page-canvas ${isCurrent ? "active" : ""} bg-white shadow-xl relative overflow-hidden flex flex-col flex-shrink-0`}
                   style={{
                     width: dim.previewW * zoom,
-                    minHeight: dim.previewH * zoom,
-                    padding: `${28 * zoom}px ${36 * zoom}px`,
+                    height: dim.previewH * zoom,
+                    padding: `${53 * zoom}px ${60 * zoom}px`,
                     fontFamily: bodyFont,
                   }}
                 >
@@ -2667,7 +2461,7 @@ export default function BookEditor({
                           <div
                             className="font-bold text-black"
                             style={{
-                              fontSize: 26 * zoom,
+                              fontSize: ptToPx(28) * zoom,
                               fontFamily: "'Source Serif 4', Georgia, serif",
                             }}
                           >
@@ -2675,17 +2469,17 @@ export default function BookEditor({
                           </div>
                           <div
                             className="flex flex-col items-center bg-gray-200 border-2 border-black"
-                            style={{ width: 72 * zoom }}
+                            style={{ width: 88 * zoom }}
                           >
                             <div
                               className="w-full bg-black text-white font-bold text-center py-0.5"
-                              style={{ fontSize: 9.5 * zoom }}
+                              style={{ fontSize: ptToPx(11) * zoom }}
                             >
                               {book.headerFooter.chapterLabel || "Chapter"}
                             </div>
                             <div
                               className="font-black text-black leading-none py-1"
-                              style={{ fontSize: 26 * zoom }}
+                              style={{ fontSize: ptToPx(32) * zoom }}
                             >
                               {book.headerFooter.chapterNumber || "02"}
                             </div>
@@ -2703,7 +2497,7 @@ export default function BookEditor({
                               <div
                                 className="bg-black text-white font-bold px-3 py-1 rounded"
                                 style={{
-                                  fontSize: 10 * zoom,
+                                  fontSize: ptToPx(11.5) * zoom,
                                   fontFamily:
                                     "'Source Serif 4', Georgia, serif",
                                 }}
@@ -2714,7 +2508,7 @@ export default function BookEditor({
                               <div
                                 className="font-bold italic underline text-black"
                                 style={{
-                                  fontSize: 12 * zoom,
+                                  fontSize: ptToPx(14) * zoom,
                                   fontFamily:
                                     "'Source Serif 4', Georgia, serif",
                                 }}
@@ -2729,7 +2523,7 @@ export default function BookEditor({
                               <div
                                 className="font-bold italic underline text-black"
                                 style={{
-                                  fontSize: 12 * zoom,
+                                  fontSize: ptToPx(14) * zoom,
                                   fontFamily:
                                     "'Source Serif 4', Georgia, serif",
                                 }}
@@ -2741,7 +2535,7 @@ export default function BookEditor({
                               <div
                                 className="bg-black text-white font-bold px-3 py-1 rounded"
                                 style={{
-                                  fontSize: 10 * zoom,
+                                  fontSize: ptToPx(11.5) * zoom,
                                   fontFamily:
                                     "'Source Serif 4', Georgia, serif",
                                 }}
@@ -2759,11 +2553,13 @@ export default function BookEditor({
 
                   {/* Content Body: 1 Column vs 2 Columns */}
                   <div
-                    ref={bodyContentRef}
-                    id="page-body-content"
-                    className="flex-1 relative z-10 page-body-container"
+                    ref={isCurrent ? bodyContentRef : undefined}
+                    id={isCurrent ? "page-body-content" : undefined}
+                    data-page-body={pg.id}
+                    className="flex-1 min-h-0 relative z-10 page-body-container"
                     style={{
                       columnCount: book.headerFooter.layoutColumns || 2,
+                      columnFill: "auto",
                       columnGap: `${20 * zoom}px`,
                       columnRule:
                         (book.headerFooter.layoutColumns || 2) === 2 &&
@@ -2974,14 +2770,7 @@ export default function BookEditor({
                           </div>
                         );
                       }
-                      const defaultSize =
-                        block.type === "heading1"
-                          ? 18
-                          : block.type === "heading2"
-                            ? 14
-                            : block.type === "heading3"
-                              ? 12
-                              : 11;
+                      const defaultSize = ptToPx(defaultBlockPt(block.type));
                       const currentSize = block.fontSize || defaultSize;
                       const size = currentSize * zoom;
                       const isMath = block.type === "math";
@@ -2991,7 +2780,11 @@ export default function BookEditor({
                           data-block-id={block.id}
                           onClick={() => setSelectedBlockId(block.id)}
                           className={`relative break-inside-avoid transition-all max-w-full group/blk ${
-                            block.type === "mcq" ? "my-2" : "my-1.5"
+                            block.type === "mcq"
+                              ? "my-2"
+                              : block.type.startsWith("heading")
+                                ? "mt-2.5 mb-1"
+                                : "my-1"
                           }`}
                           style={{
                             overflowWrap: "anywhere",
@@ -3055,7 +2848,7 @@ export default function BookEditor({
                                   textAlign: block.align || "left",
                                   color: "#0F172A",
                                   fontFamily: isMath ? mathFont : bodyFont,
-                                  lineHeight: 1.2,
+                                  lineHeight: BOOK_TYPE.lineHeight,
                                   overflowWrap: "anywhere",
                                   wordBreak: "break-word",
                                   whiteSpace: "pre-wrap",
@@ -3079,7 +2872,7 @@ export default function BookEditor({
                                 textAlign: block.align || "left",
                                 color: "#0F172A",
                                 fontFamily: isMath ? mathFont : bodyFont,
-                                lineHeight: 1.2,
+                                lineHeight: BOOK_TYPE.lineHeight,
                                 userSelect: "text",
                                 WebkitUserSelect: "text",
                                 overflowWrap: "anywhere",
@@ -3141,129 +2934,155 @@ export default function BookEditor({
                                     );
                                   })()
                                 ) : block.type === "list" ? (
-                                  <div className="my-1.5 space-y-0.5">
-                                    {block.text.split("\n").map((line, li) => {
-                                      const t = line.trim();
-                                      if (!t) return null;
-                                      const m = t.match(
-                                        /^([-•]|\(?[a-zA-Z]\)|[a-zA-Z][.)]|\(?(?:i{1,3}|iv|v|vi{1,3}|ix|x)\)|(?:i{1,3}|iv|v|vi{1,3}|ix|x)[.)]|\d{1,2}[.)])\s+(.*)$/i,
-                                      );
-                                      const marker = m
-                                        ? m[1] === "-"
-                                          ? "•"
-                                          : m[1]
-                                        : "•";
-                                      const body = m ? m[2] : t;
-                                      return (
-                                        <div
-                                          key={li}
-                                          className="flex gap-1.5"
-                                          style={{ lineHeight: 1.25 }}
-                                        >
-                                          <span className="shrink-0 text-slate-500 font-semibold">
-                                            {marker}
-                                          </span>
-                                          <span
-                                            dangerouslySetInnerHTML={{
-                                              __html: renderTextWithMath(body),
-                                            }}
-                                          />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : block.type === "heading2" ? (
                                   (() => {
-                                    const secM = block.text.match(
-                                      /^\s*(\d+(\.\d+)*)\.?\s+(.+)$/,
-                                    );
-                                    const secNum = secM ? secM[1] : "";
-                                    const secTitle = secM
-                                      ? secM[3]
-                                      : block.text;
+                                    const items = block.text
+                                      .split("\n")
+                                      .map((l) => l.trim())
+                                      .filter(Boolean)
+                                      .map(splitListMarker);
+                                    const workout = block.variant === "workout";
                                     return (
-                                      <div className="flex items-stretch my-2 group/sec relative">
-                                        {secNum ? (
-                                          <div className="bg-black text-white font-extrabold px-2.5 py-1 text-[11px] rounded-l flex items-center shrink-0 font-sans">
-                                            {secNum}
-                                          </div>
-                                        ) : null}
-                                        <div
-                                          className={`bg-gray-200 text-black font-bold px-3 py-1 text-[12px] ${secNum ? "rounded-r" : "rounded"} flex-1 flex items-center justify-between gap-2 pr-2`}
-                                          style={{
-                                            fontFamily:
-                                              "'Source Serif 4', Georgia, serif",
-                                            lineHeight: 1.2,
-                                          }}
-                                        >
-                                          <span
-                                            dangerouslySetInnerHTML={{
-                                              __html:
-                                                renderTextWithMath(secTitle),
+                                      <div
+                                        className={workout ? "relative" : ""}
+                                        style={
+                                          workout
+                                            ? {
+                                                background: "#D9D9D9",
+                                                padding: `${6 * zoom}px ${10 * zoom}px`,
+                                                paddingRight: `${90 * zoom}px`,
+                                              }
+                                            : { paddingLeft: 14 * zoom }
+                                        }
+                                      >
+                                        {workout && (
+                                          <div
+                                            className="absolute font-extrabold text-black text-center leading-tight select-none no-copy"
+                                            style={{
+                                              top: 6 * zoom,
+                                              right: 8 * zoom,
+                                              fontSize: 10.5 * zoom,
+                                              fontFamily: "system-ui, sans-serif",
                                             }}
-                                          />
-                                          <button
-                                            type="button"
-                                            onMouseDown={(e) =>
-                                              e.preventDefault()
-                                            }
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              deleteBlock(block.id);
-                                            }}
-                                            className="opacity-70 group-hover/sec:opacity-100 hover:opacity-100 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow flex items-center gap-1 cursor-pointer transition-all shrink-0"
-                                            title="Click to remove this Section column/pill"
                                           >
-                                            🗑 Remove
-                                          </button>
-                                        </div>
+                                            Let us
+                                            <br />
+                                            Workout
+                                          </div>
+                                        )}
+                                        {items.map((it, li) => (
+                                          <div
+                                            key={li}
+                                            className="flex"
+                                            style={{
+                                              gap: 6 * zoom,
+                                              lineHeight: BOOK_TYPE.lineHeight,
+                                            }}
+                                          >
+                                            <span
+                                              className="shrink-0 text-black"
+                                              style={{
+                                                fontWeight: workout || /\d/.test(it.marker) ? 700 : 400,
+                                                minWidth: 14 * zoom,
+                                              }}
+                                            >
+                                              {it.marker}
+                                            </span>
+                                            <span
+                                              style={{ textAlign: "justify" }}
+                                              dangerouslySetInnerHTML={{
+                                                __html: renderTextWithMath(it.body),
+                                              }}
+                                            />
+                                          </div>
+                                        ))}
                                       </div>
                                     );
                                   })()
-                                ) : block.type === "heading3" ? (
+                                ) : block.type === "heading2" ||
+                                  block.type === "heading3" ? (
                                   (() => {
-                                    const secM = block.text.match(
-                                      /^\s*(\d+(\.\d+)+)\.?\s+(.+)$/,
+                                    const h = classifyHeading(block);
+                                    const removeBtn = (
+                                      <button
+                                        type="button"
+                                        data-no-copy="true"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          deleteBlock(block.id);
+                                        }}
+                                        className="no-copy select-none opacity-0 group-hover/blk:opacity-100 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow cursor-pointer transition-opacity shrink-0 font-sans"
+                                        title="Remove this heading"
+                                      >
+                                        Remove
+                                      </button>
                                     );
-                                    const secNum = secM ? secM[1] : "";
-                                    const secTitle = secM
-                                      ? secM[3]
-                                      : block.text;
-                                    return (
-                                      <div className="flex items-center justify-between border-b-2 border-black pb-0.5 my-2 group/subsec relative">
-                                        <div className="flex items-center">
-                                          {secNum && (
-                                            <span className="font-extrabold text-[11px] text-black mr-2 font-sans">
-                                              {secNum}
-                                            </span>
-                                          )}
-                                          <span
-                                            className="font-bold text-[11px] text-black"
-                                            style={{
-                                              fontFamily:
-                                                "'Source Serif 4', Georgia, serif",
-                                              lineHeight: 1.2,
-                                            }}
-                                            dangerouslySetInnerHTML={{
-                                              __html:
-                                                renderTextWithMath(secTitle),
-                                            }}
-                                          />
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onMouseDown={(e) =>
-                                            e.preventDefault()
-                                          }
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            deleteBlock(block.id);
-                                          }}
-                                          className="opacity-70 group-hover/subsec:opacity-100 hover:opacity-100 bg-rose-600 hover:bg-rose-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-0.5 cursor-pointer transition-all ml-2"
-                                          title="Remove Subsection"
+                                    const serif = bodyFont;
+                                    if (h.kind === "section") {
+                                      return (
+                                        <div
+                                          className="flex items-stretch"
+                                          style={{ fontSize: size, lineHeight: 1.25 }}
                                         >
-                                          🗑 Remove
-                                        </button>
+                                          <div
+                                            className="bg-black text-white font-extrabold flex items-center shrink-0"
+                                            style={{ padding: `${3 * zoom}px ${14 * zoom}px`, fontFamily: serif }}
+                                          >
+                                            {h.num}
+                                          </div>
+                                          <div
+                                            className="text-black font-bold flex-1 flex items-center justify-between gap-2"
+                                            style={{
+                                              background: "#D9D9D9",
+                                              padding: `${3 * zoom}px ${10 * zoom}px`,
+                                              fontFamily: serif,
+                                            }}
+                                          >
+                                            <span dangerouslySetInnerHTML={{ __html: renderTextWithMath(h.title) }} />
+                                            {removeBtn}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    if (h.kind === "subsection") {
+                                      return (
+                                        <div
+                                          className="flex items-stretch"
+                                          style={{
+                                            fontSize: size,
+                                            lineHeight: 1.25,
+                                            background: "#EDEDED",
+                                            borderBottom: "1px dotted #7F7F7F",
+                                          }}
+                                        >
+                                          <div
+                                            className="font-extrabold text-black flex items-center shrink-0"
+                                            style={{
+                                              background: "#D9D9D9",
+                                              padding: `${3 * zoom}px ${10 * zoom}px`,
+                                              fontFamily: serif,
+                                            }}
+                                          >
+                                            {h.num}.
+                                          </div>
+                                          <div
+                                            className="text-black font-bold flex-1 flex items-center justify-between gap-2"
+                                            style={{ padding: `${3 * zoom}px ${10 * zoom}px`, fontFamily: serif }}
+                                          >
+                                            <span dangerouslySetInnerHTML={{ __html: renderTextWithMath(h.title) }} />
+                                            {removeBtn}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    return (
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span
+                                          className="font-bold text-black"
+                                          style={{ fontFamily: serif, fontSize: size, lineHeight: 1.25 }}
+                                          dangerouslySetInnerHTML={{ __html: renderTextWithMath(h.title) }}
+                                        />
+                                        {removeBtn}
                                       </div>
                                     );
                                   })()
@@ -3377,7 +3196,7 @@ export default function BookEditor({
                         <div
                           className="px-3 font-extrabold text-black tracking-widest text-center"
                           style={{
-                            fontSize: 10 * zoom,
+                            fontSize: ptToPx(11.5) * zoom,
                             fontFamily: "system-ui, sans-serif",
                           }}
                         >
@@ -3394,7 +3213,7 @@ export default function BookEditor({
                             <>
                               <div
                                 className="bg-black text-white font-extrabold px-3 py-0.5 text-center"
-                                style={{ fontSize: 9.5 * zoom }}
+                                style={{ fontSize: ptToPx(11) * zoom }}
                               >
                                 {formatPageNumber(
                                   activeIndex,
@@ -3404,7 +3223,7 @@ export default function BookEditor({
                               <div
                                 className="font-bold text-black"
                                 style={{
-                                  fontSize: 9.5 * zoom,
+                                  fontSize: ptToPx(11) * zoom,
                                   fontFamily:
                                     "'Source Serif 4', Georgia, serif",
                                 }}
@@ -3419,7 +3238,7 @@ export default function BookEditor({
                               <div
                                 className="font-bold text-black"
                                 style={{
-                                  fontSize: 9.5 * zoom,
+                                  fontSize: ptToPx(11) * zoom,
                                   fontFamily:
                                     "'Source Serif 4', Georgia, serif",
                                 }}
@@ -3429,7 +3248,7 @@ export default function BookEditor({
                               </div>
                               <div
                                 className="bg-black text-white font-extrabold px-3 py-0.5 text-center"
-                                style={{ fontSize: 9.5 * zoom }}
+                                style={{ fontSize: ptToPx(11) * zoom }}
                               >
                                 {formatPageNumber(
                                   activeIndex,
@@ -3443,7 +3262,175 @@ export default function BookEditor({
                     )}
                   </div>
                 </div>
-              )
+              );
+            })}
+            {showAnswerKey && (
+              /* Production Answer Key Page Live Preview (Matching Screenshot 4) */
+              <div
+                className="bg-white shadow-xl relative overflow-hidden flex flex-col select-none"
+                style={{
+                  width: dim.previewW * zoom,
+                  minHeight: dim.previewH * zoom,
+                  padding: `${53 * zoom}px ${60 * zoom}px`,
+                  fontFamily: bodyFont,
+                }}
+              >
+                {/* Background Watermark */}
+                {book.headerFooter.watermarkEnabled !== false && (
+                  <div
+                    className="absolute inset-0 pointer-events-none z-0 flex items-center justify-center overflow-hidden"
+                    style={{
+                      opacity: book.headerFooter.watermarkOpacity ?? 0.12,
+                    }}
+                  >
+                    <div
+                      className="flex items-center justify-center"
+                      style={{
+                        width: 340 * zoom,
+                        height: 340 * zoom,
+                        transform: `scale(${book.headerFooter.watermarkScale ?? 0.85})`,
+                        transformOrigin: "center center",
+                      }}
+                    >
+                      {book.headerFooter.watermarkImage ? (
+                        <img
+                          src={book.headerFooter.watermarkImage}
+                          alt="watermark"
+                          className="max-w-full max-h-full object-contain mx-auto my-auto"
+                        />
+                      ) : (
+                        <img
+                          src="/logo.jpeg"
+                          alt="watermark"
+                          className="max-w-full max-h-full object-contain mx-auto my-auto"
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Middle Page Header */}
+                <div className="relative z-10 mb-2">
+                  <div className="flex justify-between items-center mb-1">
+                    <div
+                      className="bg-black text-white font-bold px-3 py-1 rounded"
+                      style={{
+                        fontSize: ptToPx(11.5) * zoom,
+                        fontFamily: "'Source Serif 4', Georgia, serif",
+                      }}
+                    >
+                      {book.headerFooter.middleBoxText ||
+                        "Karthikeyan Analysis Study Circle"}
+                    </div>
+                    <div
+                      className="font-bold italic underline text-black"
+                      style={{
+                        fontSize: ptToPx(14) * zoom,
+                        fontFamily: "'Source Serif 4', Georgia, serif",
+                      }}
+                    >
+                      {book.headerFooter.middleRightText ||
+                        book.headerFooter.chapterTitle ||
+                        book.title}
+                    </div>
+                  </div>
+                  <div className="w-full h-[1.5px] bg-black mb-3" />
+                </div>
+
+                {/* Answer Key Grid Body */}
+                <div className="flex-1 relative z-10 flex flex-col items-center pt-2">
+                  <div
+                    className="font-extrabold text-black tracking-widest text-center mb-3"
+                    style={{
+                      fontSize: 14 * zoom,
+                      fontFamily: "system-ui, sans-serif",
+                    }}
+                  >
+                    ANSWER KEY
+                  </div>
+                  <table
+                    className="w-full border-collapse"
+                    style={{ fontSize: 10.5 * zoom }}
+                  >
+                    <thead>
+                      <tr>
+                        <th
+                          colSpan={6}
+                          className="bg-slate-400 border border-slate-500 h-2"
+                        />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {answerKeyRows.map((row, rIdx) => (
+                        <tr key={rIdx}>
+                          {row.map((cell, cIdx) => {
+                            if (!cell) {
+                              return (
+                                <td
+                                  key={cIdx}
+                                  className="border border-slate-300 p-1.5 bg-white/50 text-center"
+                                />
+                              );
+                            }
+                            const isHighlight =
+                              cell.num === "7" || cell.num === "7.";
+                            return (
+                              <td
+                                key={cIdx}
+                                onClick={() => cycleMcqAnswer(cell.blockId)}
+                                className="border border-slate-400 p-1.5 text-center cursor-pointer hover:bg-emerald-50 transition-colors"
+                                style={{
+                                  width: "16.66%",
+                                  fontFamily:
+                                    "'Source Serif 4', Georgia, serif",
+                                  background: "rgba(255,255,255,0.7)",
+                                }}
+                                title="Click cell to toggle/cycle answer (A -> B -> C -> D -> E)"
+                              >
+                                <span
+                                  className={`font-bold mr-1 ${isHighlight ? "text-red-600 font-extrabold" : "text-slate-900"}`}
+                                >
+                                  {cell.num}.
+                                </span>
+                                <span className="font-extrabold text-slate-900">
+                                  {cell.answer}
+                                </span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-slate-400 mt-4 italic font-sans">
+                    💡 Click any answer cell above to toggle &amp; edit the
+                    answer directly
+                  </p>
+                </div>
+
+                {/* Footer Section */}
+                <div className="relative z-10 mt-auto pt-2">
+                  <div className="w-full h-[1.5px] bg-black mb-1" />
+                  <div className="flex justify-between items-center">
+                    <div
+                      className="font-bold text-black"
+                      style={{
+                        fontSize: ptToPx(11) * zoom,
+                        fontFamily: "'Source Serif 4', Georgia, serif",
+                      }}
+                    >
+                      {book.headerFooter.footerLeft ||
+                        "Karthikeyan Analysis Learning Resources"}
+                    </div>
+                    <div
+                      className="bg-black text-white font-extrabold px-3 py-0.5 text-center"
+                      style={{ fontSize: ptToPx(11) * zoom }}
+                    >
+                      {formatPageNumber(book.pages.length, book.headerFooter)}
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>

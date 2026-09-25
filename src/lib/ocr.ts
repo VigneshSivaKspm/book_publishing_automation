@@ -2,6 +2,7 @@ import { createWorker, type Worker } from 'tesseract.js'
 import { structureExamText } from './mcqEngine'
 import { structureDocumentText } from './docStructure'
 import { extractChapterMeta, type ChapterMeta } from './chapterMeta'
+import { parseDocxToPages } from './docxParse'
 import type { ContentBlock } from '../types'
 import { addLog } from './logger'
 
@@ -189,15 +190,23 @@ RULES:
 0. CHAPTER HEADER: if this page's header/title area shows a chapter, unit or lesson name (and possibly its number), output it as the VERY FIRST line, exactly:
 <<<CHAPTER>>> <Title> | <Number>
 Omit " | <Number>" when there is no number.
-1. Chapter / topic title -> "# Title".
-2. Numbered section headings: "2.1 Importance of Micro Economics" -> "## 2.1 Importance of Micro Economics"; "2.6.1 Characteristics" -> "### 2.6.1 Characteristics". Other bold sub-headings -> "## Heading".
-3. Body text -> normal paragraphs separated by ONE blank line. Re-join words split by a hyphen at a line break. Do not wrap mid-sentence.
-4. Lists -> one item per line. Symbol bullets ("•", "-", "o", "➢") -> "- item". KEEP lettered lists ("a) ...", "(a) ..."), roman lists ("i. ...") and numbered lists ("1. ...") with their original markers, one item per line.
-5. Tables -> GitHub Markdown pipe tables: a header row, then a "| --- | --- |" separator row, then one row per line. Keep every column.
-6. Mathematical content -> LaTeX: inline $...$, display equations on their own line as $$...$$ (e.g. $$e_p = \\frac{\\Delta Q}{\\Delta P} \\times \\frac{P}{Q}$$).
-7. 2-COLUMN PAGES: read the LEFT column fully top-to-bottom, THEN the RIGHT column top-to-bottom. Never zig-zag across columns.
-8. IGNORE running headers/footers, the publisher name band, page numbers, and the faint circular watermark seal.
-9. Output ONLY the transcribed Markdown — no commentary, no code fences.`,
+Before writing, look at the whole page and decide what each piece of text IS (chapter title, numbered section, numbered sub-section, run-in label, body text, worked-solution steps, list, exercise box, table, display equation). Then write it with the markup below — the markup, not the visual styling, decides how the book is typeset.
+
+RULES:
+1. Chapter / topic title -> "# Title". Only the big chapter name, never a section.
+2. Numbered sections: "1.1 Theory of Equations" -> "## 1.1 Theory of Equations". Numbered sub-sections: "1.2.1. Descartes Rule…" -> "### 1.2.1 Descartes Rule…". Always keep the exact number.
+3. Run-in labels (bold words that introduce a block): "Example 1", "Solution", "Theorem 2 (Factor Theorem)", "Proof", "Note:", "Definition", "Remark", "Corollary" -> put the label ALONE on its own line as "#### Example 1", then the text that follows it on the next line. Other short un-numbered bold headings -> "#### Heading".
+4. Body text -> paragraphs separated by ONE blank line. Re-join words split by a hyphen at a line break. Do not break a prose sentence across lines.
+5. Worked solutions / derivations: keep EACH step on its OWN line (no blank line between steps of the same solution), exactly as the page shows them. Centred or stand-alone equations go on their own line as $$...$$.
+6. Lists -> one item per line. "➢" bullets -> "➢ item"; other symbol bullets ("•", "-", "o") -> "- item". KEEP lettered ("a)", "(a)"), roman ("i.", "(ii)") and numbered ("1.") markers exactly.
+7. Exercise boxes (a shaded box of practice questions, often marked "Let us Workout", "Exercise", "Try these") -> write a line ":::workout", then the numbered questions one per line, then a line ":::". Do not output the box's badge text.
+8. Tables -> GitHub Markdown pipe tables: a header row, a "| --- | --- |" separator row, then one row per line. Keep every column; use $...$ for math inside cells. Rows of only dots / ellipses can be dropped.
+9. ALL mathematics -> valid LaTeX: inline $...$, display $$...$$. Superscripts, subscripts, roots, fractions, Greek letters, Σ, ∴ etc. must be LaTeX (e.g. $a_0x^n + a_1x^{n-1}$, $\\sqrt{-1}$, $\\alpha^2\\beta$, $\\frac{14}{3}$). Never leave Unicode math like "𝑥²".
+10. Long division / Horner / synthetic-division layouts -> a pipe table that keeps the rows aligned.
+11. 2-COLUMN PAGES: read the LEFT column fully top-to-bottom, THEN the RIGHT column. Never zig-zag.
+12. A page may start or end mid-sentence (continued from the previous page) — transcribe it as-is, do not invent a heading.
+13. IGNORE running headers/footers, the publisher name band, page numbers, the "Let us Workout" cartoon badge, and the faint circular watermark seal.
+14. Output ONLY the transcribed Markdown — no commentary, no code fences.`,
             },
             {
               type: 'image_url',
@@ -247,12 +256,29 @@ export async function extractPdfTextLayer(file: File): Promise<string[]> {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i)
       const content = await page.getTextContent()
-      const text = (content.items as Array<{ str?: string }>)
-        .map((it) => it.str || '')
-        .join(' ')
-        .replace(/\s{2,}/g, ' ')
-        .trim()
-      out.push(text)
+      // Rebuild real lines (and blank lines between paragraphs) from glyph
+      // positions so headings, labels and solution steps survive the fallback.
+      const items = content.items as Array<{ str?: string; hasEOL?: boolean; transform?: number[]; height?: number }>
+      let text = ''
+      let lastY: number | null = null
+      let lineH = 12
+      for (const it of items) {
+        const y: number = it.transform?.[5] ?? lastY ?? 0
+        if (it.height) lineH = it.height
+        if (lastY !== null && Math.abs(y - lastY) > 2) {
+          if (!text.endsWith('\n')) text += '\n'
+          if (Math.abs(y - lastY) > lineH * 1.9) text += '\n'
+        }
+        text += it.str || ''
+        if (it.hasEOL) text += '\n'
+        lastY = y
+      }
+      out.push(
+        text
+          .replace(/[ \t]{2,}/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim(),
+      )
     }
     return out
   } catch (err) {
@@ -564,7 +590,29 @@ export async function parseMultiPageDocument(
     }
   }
 
-  // 2. PPTX / PPT Documents:
+  // 2. Word Documents (.docx): read the XML content directly via mammoth — no
+  //    OCR / vision needed, so this is both faster and far more accurate.
+  if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
+    onProgress?.({ status: 'Reading Word document…', progress: 0.2 })
+    addLog({
+      category: 'ocr',
+      level: 'info',
+      title: 'Word Document Parsing',
+      details: `Extracting ${mode === 'document' ? 'structured content (headings, lists & tables)' : 'question text'} from ${file.name}...`,
+    })
+    const docxPages = await parseDocxToPages(file, mode)
+    onProgress?.({ status: 'Structuring content…', progress: 0.8 })
+    if (docxPages.length > 0) return docxPages
+    addLog({
+      category: 'ocr',
+      level: 'warn',
+      title: 'Word Document Empty / Unreadable',
+      details: `No text could be extracted from ${file.name}. Legacy .doc files must be re-saved as .docx.`,
+    })
+    return ['']
+  }
+
+  // 3. PPTX / PPT Documents:
   if (fileName.endsWith('.pptx') || fileName.endsWith('.ppt')) {
     try {
       const arrayBuffer = await file.arrayBuffer()

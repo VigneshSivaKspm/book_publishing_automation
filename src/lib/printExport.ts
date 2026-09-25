@@ -1,7 +1,8 @@
 import type { BookDocument } from '../types'
 import { PAPER_DIMENSIONS } from '../types'
 import { renderTextWithMath } from './mathEngine'
-import { resolveBodyStack } from './fonts'
+import { customFontFaceCss, getPreset, googleFontLinks, isCustomFamily, resolveBodyStack } from './fonts'
+import { BOOK_TYPE, classifyHeading, splitListMarker } from './bookStyle'
 
 function escapeHtml(s: string): string {
   return s
@@ -50,10 +51,11 @@ function blockHtml(
   imageAlt?: string,
   isQuestionsOnly = false,
   fontSize?: number,
+  variant?: string,
 ): string {
   const a = align === 'justify' ? 'justify' : align || 'left'
-  const effSize = fontSize || 13.5
-  const lineHeightPt = (effSize * 1.2).toFixed(1)
+  const effSize = fontSize || BOOK_TYPE.body
+  const lineHeightPt = (effSize * BOOK_TYPE.lineHeight).toFixed(1)
   const sizeStyle = `font-size:${effSize}pt;line-height:${lineHeightPt}pt;`
 
   if (type === 'image' && imageUrl) {
@@ -62,49 +64,36 @@ function blockHtml(
   const content = renderTextWithMath(text)
   if (type === 'heading1') return `<h1 style="text-align:${a};font-size:${fontSize || 18}pt;line-height:${((fontSize || 18) * 1.2).toFixed(1)}pt;margin:12pt 0 6pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h1>`
   
-  if (type === 'heading2') {
-    const secMatch = text.match(/^\s*(\d+(\.\d+)*)\.?\s+(.+)$/)
-    if (secMatch) {
-      const badge = secMatch[1]
-      const title = renderTextWithMath(secMatch[3])
-      return `<div class="sec-hdr-wrap" style="page-break-inside:avoid;break-inside:avoid;margin:12pt 0 6pt;">
-        <div class="sec-hdr-box" style="display:flex;align-items:stretch;">
-          <div class="sec-badge-num" style="background:#000000;color:#FFFFFF;font-weight:800;font-size:11pt;padding:4px 10px;border-radius:1px;display:flex;align-items:center;font-family:system-ui,sans-serif;flex-shrink:0">${badge}</div>
-          <div class="sec-title-bg" style="background:#E5E7EB;color:#000000;font-weight:700;font-size:11.5pt;padding:4px 12px;flex:1;display:flex;align-items:center;font-family:'Source Serif 4',Georgia,serif;border-radius:1px">${title}</div>
-        </div>
-      </div>`
+  if (type === 'heading2' || type === 'heading3') {
+    const h = classifyHeading({ type: type as 'heading2', text })
+    const serif = 'inherit'
+    const size = fontSize || (h.kind === 'subsection' ? BOOK_TYPE.subsection : h.kind === 'section' ? BOOK_TYPE.section : BOOK_TYPE.label)
+    const wrap = `page-break-inside:avoid;break-inside:avoid;page-break-after:avoid;break-after:avoid;font-size:${size}pt;line-height:1.25;font-family:${serif};color:#000;`
+    if (h.kind === 'section') {
+      return `<div class="sec-hdr" style="${wrap}display:flex;align-items:stretch;margin:10pt 0 5pt"><div style="background:#000;color:#fff;font-weight:800;padding:2.5pt 11pt;display:flex;align-items:center">${escapeHtml(h.num)}</div><div style="background:#D9D9D9;font-weight:700;padding:2.5pt 8pt;flex:1;display:flex;align-items:center">${renderTextWithMath(h.title)}</div></div>`
     }
-    return `<h2 style="text-align:${a};font-size:${fontSize || 14}pt;line-height:${((fontSize || 14) * 1.2).toFixed(1)}pt;margin:10pt 0 4pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h2>`
-  }
-
-  if (type === 'heading3') {
-    const secMatch = text.match(/^\s*(\d+(\.\d+)+)\.?\s+(.+)$/)
-    if (secMatch) {
-      const badge = secMatch[1]
-      const title = renderTextWithMath(secMatch[3])
-      return `<div class="subsec-hdr-wrap" style="page-break-inside:avoid;break-inside:avoid;margin:9pt 0 4pt;">
-        <div class="subsec-hdr-box" style="display:flex;align-items:center;border-bottom:1.5px solid #000000;padding-bottom:2px;">
-          <span class="subsec-badge" style="font-weight:800;font-size:10.5pt;color:#000000;margin-right:6px;font-family:system-ui,sans-serif">${badge}</span>
-          <span class="subsec-title" style="font-weight:700;font-size:10.5pt;color:#000000;font-family:'Source Serif 4',Georgia,serif">${title}</span>
-        </div>
-      </div>`
+    if (h.kind === 'subsection') {
+      return `<div class="subsec-hdr" style="${wrap}display:flex;align-items:stretch;margin:9pt 0 4pt;background:#EDEDED;border-bottom:1px dotted #7F7F7F"><div style="background:#D9D9D9;font-weight:800;padding:2.5pt 8pt;display:flex;align-items:center">${escapeHtml(h.num)}.</div><div style="font-weight:700;padding:2.5pt 8pt;flex:1;display:flex;align-items:center">${renderTextWithMath(h.title)}</div></div>`
     }
-    return `<h3 style="text-align:${a};font-size:${fontSize || 12}pt;line-height:${((fontSize || 12) * 1.2).toFixed(1)}pt;margin:8pt 0 4pt;page-break-after:avoid;break-after:avoid;font-weight:700">${content}</h3>`
+    return `<div class="label-hdr" style="${wrap}font-weight:700;margin:8pt 0 2pt">${renderTextWithMath(h.title)}</div>`
   }
 
   if (type === 'list') {
+    const workout = variant === 'workout'
     const items = text
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean)
       .map((l) => {
-        const m = l.match(/^([-•]|\(?[a-zA-Z]\)|[a-zA-Z][.)]|\(?(?:i{1,3}|iv|v|vi{1,3}|ix|x)\)|(?:i{1,3}|iv|v|vi{1,3}|ix|x)[.)]|\d{1,2}[.)])\s+(.*)$/i)
-        const marker = m ? (m[1] === '-' ? '•' : m[1]) : '•'
-        const body = m ? m[2] : l
-        return `<div style="display:flex;gap:6pt;margin:2pt 0;text-align:left;${sizeStyle}"><span style="flex-shrink:0;font-weight:600;color:#334155">${escapeHtml(marker)}</span><span>${renderTextWithMath(body)}</span></div>`
+        const { marker, body } = splitListMarker(l)
+        const bold = workout || /\d/.test(marker)
+        return `<div style="display:flex;gap:5pt;margin:1pt 0;${sizeStyle}"><span style="flex-shrink:0;min-width:11pt;font-weight:${bold ? 700 : 400};color:#000">${escapeHtml(marker)}</span><span style="text-align:justify">${renderTextWithMath(body)}</span></div>`
       })
       .join('')
-    return `<div style="margin:4pt 0 4pt 8pt">${items}</div>`
+    if (workout) {
+      return `<div class="workout" style="position:relative;background:#D9D9D9;padding:5pt 70pt 5pt 8pt;margin:8pt 0;break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact"><div style="position:absolute;top:5pt;right:7pt;font:800 9pt/1.1 system-ui,sans-serif;text-align:center">Let us<br/>Workout</div>${items}</div>`
+    }
+    return `<div style="margin:3pt 0 3pt 11pt">${items}</div>`
   }
   if (type === 'table') {
     const rows = text
@@ -170,7 +159,14 @@ export function buildPrintableHtml(book: BookDocument): string {
   const hf = book.headerFooter
   const isQuestionsOnly = book.bookMode === 'questions-only'
   const bodyFont = resolveBodyStack(book.fontId || 'english-serif', book.customFontFamily)
-  const mathFont = resolveBodyStack(book.mathFontId || 'math-stix', book.mathFontId?.startsWith('Custom_') ? book.mathFontId : undefined)
+  const mathFont = isCustomFamily(book.mathFontId)
+    ? resolveBodyStack(book.mathFontId, book.mathFontId)
+    : getPreset(book.mathFontId || 'math-stix').stack
+  // Uploaded fonts live in this browser only: embed them so the print window has them too.
+  const embeddedFonts = customFontFaceCss([book.fontId === 'custom' ? book.customFontFamily : book.fontId, book.mathFontId])
+  const presetFontLinks = googleFontLinks([book.fontId, book.mathFontId])
+    .map((href) => `<link rel="stylesheet" href="${href}"/>`)
+    .join('\n')
   const pageCss =
     book.paperSize === 'A4' ? 'A4' : book.paperSize === 'B5' ? 'B5' : '203mm 203mm'
 
@@ -181,7 +177,7 @@ export function buildPrintableHtml(book: BookDocument): string {
   const allBlocks = book.pages.flatMap((p) => p.blocks)
   const srcHtml = allBlocks
     .map((b) => {
-      const inner = blockHtml(b.text, b.type, b.align || 'left', b.imageUrl, b.imageAlt, isQuestionsOnly, b.fontSize)
+      const inner = blockHtml(b.text, b.type, b.align || 'left', b.imageUrl, b.imageAlt, isQuestionsOnly, b.fontSize, b.variant)
       if (!inner.trim()) return ''
       return `<div class="blk${isSpanBlock(b.type) ? ' blk-span' : ''}">${inner}</div>`
     })
@@ -246,9 +242,11 @@ export function buildPrintableHtml(book: BookDocument): string {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"/>
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Catamaran:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Noto+Serif:wght@400;700&family=Source+Serif+4:opsz,wght@8..60,400;600;700&family=STIX+Two+Text:wght@400;700&display=swap"/>
+${presetFontLinks}
 <style>
+${embeddedFonts}
   @page { size: ${pageCss}; margin: 0; }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { margin: 0; font-family: ${bodyFont}; color: #0F172A; background: #E2E8F0; }
   .math-font, .katex { font-family: ${mathFont} !important; }
 
@@ -390,7 +388,7 @@ export function buildPrintableHtml(book: BookDocument): string {
     min-height: 0;
     position: relative;
     z-index: 2;
-    font-size: 10.5pt;
+    font-size: ${BOOK_TYPE.body}pt;
     color: #000000;
     overflow-wrap: anywhere;
     word-break: break-word;

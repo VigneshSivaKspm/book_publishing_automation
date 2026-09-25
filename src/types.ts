@@ -77,6 +77,8 @@ export interface ContentBlock {
   fontSize?: number
   options?: string[]
   answer?: string
+  /** Visual variant: 'workout' renders a list as a shaded "Let us Workout" exercise box */
+  variant?: 'workout'
 }
 
 export interface BookPage {

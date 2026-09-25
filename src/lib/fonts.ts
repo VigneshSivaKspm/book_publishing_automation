@@ -53,24 +53,31 @@ export function ensureFontLoaded(fontIdOrFamily: string) {
     !family ||
     loadedGoogleFonts.has(family) ||
     family.startsWith('Custom_') ||
-    family.includes('Latha') ||
-    family.includes('Bamini') ||
-    family.includes('Vijaya') ||
-    family.includes('Vani') ||
-    family.includes('InaiMathi')
+    SYSTEM_ONLY.test(family)
   ) {
     return
   }
 
   loadedGoogleFonts.add(family)
-  const linkId = `gfont-${family.replace(/\s+/g, '-').toLowerCase()}`
-  if (document.getElementById(linkId)) return
+  googleFontUrls(family).forEach((href, i) => {
+    const linkId = `gfont-${family.replace(/\s+/g, '-').toLowerCase()}-${i}`
+    if (document.getElementById(linkId)) return
+    const link = document.createElement('link')
+    link.id = linkId
+    link.rel = 'stylesheet'
+    link.href = href
+    document.head.appendChild(link)
+  })
+}
 
-  const link = document.createElement('link')
-  link.id = linkId
-  link.rel = 'stylesheet'
-  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:ital,wght@0,400;0,600;0,700;1,400&display=swap`
-  document.head.appendChild(link)
+/** Google rejects a whole request if any asked-for style is missing (e.g. a font
+ *  with no bold), so load the regular face on its own and try bold separately. */
+function googleFontUrls(family: string): string[] {
+  const f = encodeURIComponent(family).replace(/%20/g, '+')
+  return [
+    `https://fonts.googleapis.com/css2?family=${f}&display=swap`,
+    `https://fonts.googleapis.com/css2?family=${f}:wght@700&display=swap`,
+  ]
 }
 
 export const FONT_PRESETS: FontPreset[] = [
@@ -193,34 +200,125 @@ export const FONT_PRESETS: FontPreset[] = [
 ]
 
 const LIBRARY_KEY = 'figma.fonts.v1'
-const loadedFamilies = new Set<string>()
+const DB_NAME = 'figma-fonts'
+const STORE = 'fonts'
+const MAX_FONT_BYTES = 25 * 1024 * 1024
+const SYSTEM_ONLY = /Latha|Bamini|Baamini|Vijaya|Vani|InaiMathi|Kalyani|Shree Tamil|Sentinel|Sangam|Cambria|KaTeX_|Computer Modern|Latin Modern|TeX Gyre|Euler|Asana|Baskervaldx|XITS|Libertinus|DejaVu|Fira Math/
+
+/** In-memory copy of the library so render code can read it synchronously.
+ *  Seeded from the legacy localStorage copy, then replaced by IndexedDB in `hydrateCustomFonts`. */
+let cache: CustomFontRecord[] = readLegacyLibrary()
+const faces = new Map<string, FontFace>()
+const listeners = new Set<() => void>()
 
 export function getPreset(id: string): FontPreset {
   return FONT_PRESETS.find((f) => f.id === id) || FONT_PRESETS[0]
 }
 
 export function listCustomFonts(): CustomFontRecord[] {
+  return cache
+}
+
+/** Subscribe to library changes (upload / remove / hydrate). Returns an unsubscribe fn. */
+export function onFontsChanged(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
+function setCache(next: CustomFontRecord[]) {
+  cache = next
+  listeners.forEach((fn) => fn())
+}
+
+function readLegacyLibrary(): CustomFontRecord[] {
   try {
-    const raw = localStorage.getItem(LIBRARY_KEY)
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LIBRARY_KEY) : null
     if (!raw) return []
     const parsed = JSON.parse(raw) as CustomFontRecord[]
-    return Array.isArray(parsed) ? parsed : []
+    return Array.isArray(parsed) ? parsed.filter((f) => f && f.family && f.dataBase64) : []
   } catch {
     return []
   }
 }
 
-function saveLibrary(fonts: CustomFontRecord[]) {
-  localStorage.setItem(LIBRARY_KEY, JSON.stringify(fonts))
+// ---- IndexedDB persistence (fonts are often several MB — far beyond localStorage's quota) ----
+let dbPromise: Promise<IDBDatabase | null> | null = null
+function openDb(): Promise<IDBDatabase | null> {
+  if (dbPromise) return dbPromise
+  dbPromise = new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === 'undefined') return resolve(null)
+      const req = indexedDB.open(DB_NAME, 1)
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: 'id' })
+      }
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => resolve(null)
+      req.onblocked = () => resolve(null)
+    } catch {
+      resolve(null)
+    }
+  })
+  return dbPromise
 }
 
-function extToFormat(name: string): string {
+function idbRequest<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return openDb().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        if (!db) return reject(new Error('Font storage is unavailable in this browser'))
+        const tx = db.transaction(STORE, mode)
+        const req = run(tx.objectStore(STORE))
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error || new Error('Font storage error'))
+      }),
+  )
+}
+
+async function persistFont(rec: CustomFontRecord): Promise<void> {
+  try {
+    await idbRequest('readwrite', (st) => st.put(rec))
+  } catch {
+    // Last resort: localStorage (small fonts only).
+    const legacy = readLegacyLibrary().filter((f) => f.id !== rec.id)
+    try {
+      localStorage.setItem(LIBRARY_KEY, JSON.stringify([...legacy, rec]))
+    } catch {
+      throw new Error('Not enough browser storage to save this font')
+    }
+  }
+}
+
+async function deletePersistedFont(id: string): Promise<void> {
+  try {
+    await idbRequest('readwrite', (st) => st.delete(id))
+  } catch {
+    /* ignore */
+  }
+  const legacy = readLegacyLibrary()
+  if (legacy.some((f) => f.id === id)) {
+    try {
+      localStorage.setItem(LIBRARY_KEY, JSON.stringify(legacy.filter((f) => f.id !== id)))
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function extToFormat(name: string): string | null {
   const ext = name.split('.').pop()?.toLowerCase()
   if (ext === 'ttf') return 'truetype'
   if (ext === 'otf') return 'opentype'
   if (ext === 'woff') return 'woff'
   if (ext === 'woff2') return 'woff2'
-  return 'truetype'
+  return null
+}
+
+function formatMime(format: string): string {
+  if (format === 'opentype') return 'font/otf'
+  if (format === 'woff') return 'font/woff'
+  if (format === 'woff2') return 'font/woff2'
+  return 'font/ttf'
 }
 
 function bufferToBase64(buffer: ArrayBuffer): string {
@@ -240,37 +338,87 @@ function base64ToBuffer(b64: string): ArrayBuffer {
   return bytes.buffer
 }
 
+/** Load a font into the page. Re-registering a family swaps in the new file. */
 export async function registerFontFace(family: string, dataBase64: string, format: string): Promise<void> {
-  if (loadedFamilies.has(family)) return
-  const buffer = base64ToBuffer(dataBase64)
-  const face = new FontFace(family, buffer, { style: 'normal', weight: '400' })
-  // Also hint format via CSS descriptor when possible
   void format
-  await face.load()
+  const face = new FontFace(family, base64ToBuffer(dataBase64), { style: 'normal', weight: '400' })
+  await face.load() // rejects for corrupt / non-font files
+  const old = faces.get(family)
+  if (old) document.fonts.delete(old)
   document.fonts.add(face)
-  loadedFamilies.add(family)
+  faces.set(family, face)
 }
 
-/** Load all saved custom fonts into the document (call on app/editor start). */
-export async function hydrateCustomFonts(): Promise<CustomFontRecord[]> {
-  const fonts = listCustomFonts()
-  for (const f of fonts) {
+let hydratePromise: Promise<CustomFontRecord[]> | null = null
+
+/** Load the saved library (IndexedDB + legacy localStorage) and register every font. Safe to call repeatedly. */
+export function hydrateCustomFonts(): Promise<CustomFontRecord[]> {
+  if (hydratePromise) return hydratePromise
+  hydratePromise = (async () => {
+    let stored: CustomFontRecord[] = []
     try {
-      await registerFontFace(f.family, f.dataBase64, f.format)
+      stored = await idbRequest('readonly', (st) => st.getAll() as IDBRequest<CustomFontRecord[]>)
     } catch {
-      /* skip broken */
+      stored = []
     }
-  }
-  return fonts
+    const byId = new Map(stored.map((f) => [f.id, f]))
+    // Migrate fonts saved by older versions in localStorage.
+    const legacy = readLegacyLibrary()
+    for (const f of legacy) {
+      if (byId.has(f.id)) continue
+      byId.set(f.id, f)
+      try {
+        await idbRequest('readwrite', (st) => st.put(f))
+      } catch {
+        /* stays in localStorage */
+      }
+    }
+    if (legacy.length && (await openDb())) {
+      try {
+        localStorage.removeItem(LIBRARY_KEY)
+      } catch {
+        /* ignore */
+      }
+    }
+    const all = [...byId.values()].sort((a, b) => a.addedAt.localeCompare(b.addedAt))
+    const ok: CustomFontRecord[] = []
+    for (const f of all) {
+      try {
+        if (!faces.has(f.family)) await registerFontFace(f.family, f.dataBase64, f.format)
+        ok.push(f)
+      } catch {
+        /* skip broken */
+      }
+    }
+    setCache(ok)
+    return ok
+  })()
+  return hydratePromise
 }
 
+function familyFor(name: string): string {
+  const existing = cache.find((f) => f.name.toLowerCase() === name.toLowerCase())
+  if (existing) return existing.family
+  return `Custom_${name.replace(/\s+/g, '_')}_${Date.now().toString(36)}`
+}
+
+/** Validate, load and save an uploaded .ttf / .otf / .woff / .woff2 file.
+ *  Uploading a font with the same name again replaces it in place, so books using it keep working. */
 export async function importFontFile(file: File): Promise<CustomFontRecord> {
-  const name = file.name.replace(/\.[^.]+$/, '').replace(/[^\w\s-]/g, '').trim() || 'CustomFont'
-  const family = `Custom_${name.replace(/\s+/g, '_')}_${Date.now().toString(36)}`
-  const buffer = await file.arrayBuffer()
-  const dataBase64 = bufferToBase64(buffer)
+  await hydrateCustomFonts()
   const format = extToFormat(file.name)
-  await registerFontFace(family, dataBase64, format)
+  if (!format) throw new Error(`“${file.name}” is not a font file (use .ttf, .otf, .woff or .woff2)`)
+  if (file.size === 0) throw new Error(`“${file.name}” is empty`)
+  if (file.size > MAX_FONT_BYTES) throw new Error(`“${file.name}” is larger than 25 MB`)
+
+  const name = file.name.replace(/\.[^.]+$/, '').replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim() || 'Custom Font'
+  const family = familyFor(name)
+  const dataBase64 = bufferToBase64(await file.arrayBuffer())
+  try {
+    await registerFontFace(family, dataBase64, format)
+  } catch {
+    throw new Error(`“${file.name}” could not be read as a font`)
+  }
 
   const record: CustomFontRecord = {
     id: family,
@@ -281,8 +429,8 @@ export async function importFontFile(file: File): Promise<CustomFontRecord> {
     addedAt: new Date().toISOString(),
     fileName: file.name,
   }
-  const next = [...listCustomFonts().filter((f) => f.name.toLowerCase() !== name.toLowerCase()), record]
-  saveLibrary(next)
+  await persistFont(record)
+  setCache([...cache.filter((f) => f.id !== record.id), record])
   return record
 }
 
@@ -292,8 +440,43 @@ export async function loadCustomFont(file: File): Promise<{ name: string; family
   return { name: r.name, family: r.family }
 }
 
-export function removeCustomFont(id: string) {
-  saveLibrary(listCustomFonts().filter((f) => f.id !== id))
+export async function removeCustomFont(id: string): Promise<void> {
+  const rec = cache.find((f) => f.id === id)
+  if (rec) {
+    const face = faces.get(rec.family)
+    if (face) document.fonts.delete(face)
+    faces.delete(rec.family)
+  }
+  setCache(cache.filter((f) => f.id !== id))
+  await deletePersistedFont(id)
+}
+
+export function isCustomFamily(family?: string): boolean {
+  return !!family && cache.some((f) => f.family === family || f.id === family)
+}
+
+/** @font-face rules (fonts embedded as data URLs) so a separate print window can use uploaded fonts. */
+export function customFontFaceCss(familiesOrIds: (string | undefined)[]): string {
+  const wanted = new Set(familiesOrIds.filter(Boolean) as string[])
+  return cache
+    .filter((f) => wanted.has(f.family) || wanted.has(f.id))
+    .map(
+      (f) =>
+        `@font-face{font-family:"${f.family}";src:url(data:${formatMime(f.format)};base64,${f.dataBase64}) format("${f.format}");font-weight:400;font-style:normal;font-display:block;}`,
+    )
+    .join('\n')
+}
+
+/** Google Fonts stylesheet URLs for the given preset ids (skips system-only and custom fonts). */
+export function googleFontLinks(presetIds: (string | undefined)[]): string[] {
+  const fams = new Set<string>()
+  for (const id of presetIds) {
+    if (!id) continue
+    const preset = FONT_PRESETS.find((f) => f.id === id)
+    if (!preset || SYSTEM_ONLY.test(preset.family)) continue
+    fams.add(preset.family)
+  }
+  return [...fams].flatMap(googleFontUrls)
 }
 
 export function downloadBlob(filename: string, blob: Blob) {
@@ -328,28 +511,36 @@ export function exportFontPack(prefs?: FontPack['prefs']): FontPack {
 
 /** Import a Figma font pack JSON. Returns imported count + prefs. */
 export async function importFontPack(file: File): Promise<{ count: number; prefs?: FontPack['prefs'] }> {
-  const text = await file.text()
-  const pack = JSON.parse(text) as FontPack
-  if (!pack || !Array.isArray(pack.fonts)) throw new Error('Invalid font pack')
+  await hydrateCustomFonts()
+  let pack: FontPack
+  try {
+    pack = JSON.parse(await file.text()) as FontPack
+  } catch {
+    throw new Error('This file is not a font pack')
+  }
+  if (!pack || !Array.isArray(pack.fonts)) throw new Error('This file is not a font pack')
 
-  const existing = listCustomFonts()
-  const byName = new Map(existing.map((f) => [f.name.toLowerCase(), f]))
   let count = 0
+  const next = new Map(cache.map((f) => [f.id, f]))
   for (const f of pack.fonts) {
-    if (!f.dataBase64 || !f.family || !f.name) continue
+    if (!f?.dataBase64 || !f.family || !f.name) continue
+    const rec: CustomFontRecord = {
+      ...f,
+      id: f.id || f.family,
+      format: f.format || 'truetype',
+      addedAt: f.addedAt || new Date().toISOString(),
+      fileName: f.fileName || `${f.name}.ttf`,
+    }
     try {
-      await registerFontFace(f.family, f.dataBase64, f.format || 'truetype')
-      byName.set(f.name.toLowerCase(), {
-        ...f,
-        id: f.id || f.family,
-        addedAt: f.addedAt || new Date().toISOString(),
-      })
+      await registerFontFace(rec.family, rec.dataBase64, rec.format)
+      await persistFont(rec)
+      next.set(rec.id, rec)
       count++
     } catch {
-      /* skip */
+      /* skip broken entries */
     }
   }
-  saveLibrary([...byName.values()])
+  setCache([...next.values()])
   return { count, prefs: pack.prefs }
 }
 
@@ -391,6 +582,7 @@ export function resolveBodyStack(
   fontId: string,
   customFamily?: string,
 ): string {
+  fontId = fontId || 'english-serif'
   ensureFontLoaded(fontId)
   if ((fontId === 'custom' || fontId.startsWith('Custom_')) && customFamily) {
     return `"${customFamily}", "Noto Sans Tamil", "Source Serif 4", sans-serif`

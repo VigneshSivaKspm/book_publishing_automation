@@ -45,10 +45,18 @@ export function cleanText(raw: string): { text: string; fixes: number } {
     return `${a}1${n}`;
   });
   // common OCR: rn → m in short words is risky; skip. Fix | as I sparingly:
-  text = text.replace(/(^|\s)\|(\s|$)/g, (_, a, b) => {
-    fixes++;
-    return `${a}I${b}`;
-  });
+  // …but never inside markdown pipe-table rows, where "|" is the cell separator.
+  text = text
+    .split("\n")
+    .map((line) =>
+      /^\s*\|/.test(line)
+        ? line
+        : line.replace(/(^|\s)\|(\s|$)/g, (_, a, b) => {
+            fixes++;
+            return `${a}I${b}`;
+          }),
+    )
+    .join("\n");
   text = text.replace(OCR_O_AS_0, (m) => m); // keep identity; flag handled elsewhere
 
   if (fixes > 0) {

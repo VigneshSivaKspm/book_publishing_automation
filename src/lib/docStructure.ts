@@ -21,8 +21,56 @@ const CHAPTER_TITLE = /^(chapter|topic|unit)\s+[\dIVXLC]+\b/i;
 const SEC_2 = /^(\d+\.\d+)\.?\s+([A-Za-z].{2,90})$/;
 // "2.6.1 Characteristics of Human Wants" / "2.6.1. Classification of Goods"
 const SEC_3 = /^(\d+\.\d+\.\d+)\.?\s+(.+)$/;
-// "2.4 Production Possibility Curve" style single-number section on its own line
+// "1. Quadratic Equations (Highest power is two)" — a short, title-like numbered line
 const SEC_1 = /^(\d+)\.\s+([A-Z][A-Za-z].{3,80})$/;
+const isTitleLike = (t: string) =>
+  t.split(/\s+/).length <= 9 && !/[.?:;,]$/.test(t);
+
+// Run-in labels printed in bold on their own line: "Example 1", "Solution",
+// "Theorem 2 (Factor Theorem).", "Note:". Text after a ":" / "." separator
+// becomes the following paragraph.
+const LABEL =
+  /^(?:\*\*)?((?:Worked\s+|Illustrative\s+)?(?:Example|Solution|Sol|Theorem|Proof|Note|Notes|Definition|Remark|Corollary|Lemma|Illustration|Problem|Answer|Hint|Result|Property|Properties|Formulae?|Observation|Aliter|Alternative\s+Method))\b(\s*\d+(?:\.\d+)*)?(\s*\([^)]{1,80}\))?(?:\*\*)?\s*([:.\-–])?\s*(?:\*\*)?\s*(.*)$/i;
+
+// Exercise box openers ("Let us Workout", "Exercise 1.2", "Try Yourself" …)
+const WORKOUT_HEAD =
+  /^(?:#+\s*)?(?:let\s+us\s+work\s*out|exercises?(?:\s+\d+(?:\.\d+)*)?|practice\s+(?:problems|questions)|try\s+(?:these|yourself)|self[-\s]?assessment)\s*:?$/i;
+const IMPERATIVE =
+  /^\s*\d{1,2}[.)]\s+(show|prove|find|solve|evaluate|determine|calculate|obtain|verify|if|form|compute|express|reduce|discuss|test|diminish|increase|transform|remove|using|use|sum|expand)\b/i;
+
+/** Split a "Example 1: Prove that…" line into a label + remaining text. */
+function matchLabel(t: string): { label: string; rest: string } | null {
+  const m = t.match(LABEL);
+  if (!m) return null;
+  const [, word, num = "", paren = "", sep, rest = ""] = m;
+  const label = `${word}${num}${paren}`.replace(/\s+/g, " ").trim();
+  // "Solution of the equation…" / "Note that…" are ordinary sentences.
+  if (rest && !sep) return null;
+  return { label: sep === ":" ? `${label}:` : label, rest: rest.trim() };
+}
+
+/** Join wrapped lines of one paragraph, keeping deliberate line breaks
+ *  (worked-solution steps, equations) and re-flowing soft wraps. */
+function joinParagraphLines(lines: string[]): string {
+  let out = "";
+  lines.forEach((line, i) => {
+    if (i === 0) {
+      out = line;
+      return;
+    }
+    const prev = lines[i - 1];
+    const hardBreak =
+      /[.:;!?)\]]$|\$$/.test(prev) ||
+      /^[=∴∵⇒→]|^\$/.test(line) ||
+      (prev.length < 60 && /^[A-Z(=∴]/.test(line));
+    if (!hardBreak && /-$/.test(prev) && /^[a-z]/.test(line)) {
+      out = out.slice(0, -1) + line; // re-join a hyphenated word
+      return;
+    }
+    out += (hardBreak ? "\n" : " ") + line;
+  });
+  return out.replace(/[ \t]{2,}/g, " ").trim();
+}
 
 const SYMBOL_BULLET = /^\s*([-*•▪◦‣∙·]|[➢➤►▶‣]|o)\s+\S/;
 const LETTER_BULLET = /^\s*(\([a-zA-Z]\)|[a-zA-Z][.)])\s+\S/;
@@ -52,7 +100,9 @@ function headingBlock(level: 1 | 2 | 3, text: string): ContentBlock {
 function normalizeBullet(line: string): string {
   const t = line.trim();
   if (SYMBOL_BULLET.test(line)) {
-    return `• ${t.replace(/^\s*([-*•▪◦‣∙·]|[➢➤►▶‣]|o)\s+/, "")}`;
+    const sym = t.match(/^([-*•▪◦‣∙·]|[➢➤►▶‣]|o)\s+/)?.[1] ?? "•";
+    const marker = /[➢➤►▶]/.test(sym) ? "➢" : "•";
+    return `${marker} ${t.replace(/^\s*([-*•▪◦‣∙·]|[➢➤►▶‣]|o)\s+/, "")}`;
   }
   return t;
 }
@@ -67,7 +117,11 @@ function isBulletLine(rawLine: string): boolean {
 }
 
 export function structureDocumentText(raw: string): ContentBlock[] {
-  const text = cleanText(raw || "").text.replace(/\r\n/g, "\n");
+  // Math-italic letters (𝑥, 𝛼 from Word / PDF text layers) -> plain letters,
+  // which every body font can draw; superscripts like ² are left intact.
+  const text = cleanText(raw || "")
+    .text.replace(/\r\n/g, "\n")
+    .replace(/[\u{1D400}-\u{1D7FF}]/gu, (c) => c.normalize("NFKC"));
   const lines = text.split("\n");
   const blocks: ContentBlock[] = [];
 
@@ -75,12 +129,12 @@ export function structureDocumentText(raw: string): ContentBlock[] {
   let list: string[] = [];
   let table: string[] = [];
 
+  let inWorkout = false;
+  let workoutPending = false;
+
   const flushPara = () => {
     if (para.length) {
-      const joined = para
-        .join(" ")
-        .replace(/\s{2,}/g, " ")
-        .trim();
+      const joined = joinParagraphLines(para);
       if (joined)
         blocks.push({
           id: uid("blk"),
@@ -93,12 +147,20 @@ export function structureDocumentText(raw: string): ContentBlock[] {
   };
   const flushList = () => {
     if (list.length) {
-      blocks.push({
+      const numbered = list.filter((l) => /^\s*\d{1,2}[.)]\s/.test(l));
+      const exercise =
+        numbered.length >= 2 &&
+        numbered.filter((l) => IMPERATIVE.test(l)).length >=
+          Math.ceil(numbered.length * 0.6);
+      const block: ContentBlock = {
         id: uid("blk"),
         type: "list",
         text: list.join("\n"),
         align: "left",
-      });
+      };
+      if (inWorkout || workoutPending || exercise) block.variant = "workout";
+      blocks.push(block);
+      workoutPending = false;
       list = [];
     }
   };
@@ -137,6 +199,23 @@ export function structureDocumentText(raw: string): ContentBlock[] {
       continue;
     }
 
+    // --- exercise ("Let us Workout") boxes ----------------------------------
+    if (/^:::\s*workout\b/i.test(t)) {
+      flushAll();
+      inWorkout = true;
+      continue;
+    }
+    if (/^:::\s*$/.test(t)) {
+      flushAll();
+      inWorkout = false;
+      continue;
+    }
+    if (WORKOUT_HEAD.test(t)) {
+      flushAll();
+      workoutPending = true;
+      continue;
+    }
+
     // --- tables -------------------------------------------------------------
     if (TABLE_ROW.test(t)) {
       flushPara();
@@ -155,12 +234,19 @@ export function structureDocumentText(raw: string): ContentBlock[] {
     }
     if ((m = t.match(H2))) {
       flushAll();
-      blocks.push(headingBlock(2, m[1]));
+      blocks.push(headingBlock(2, m[1].replace(/\*\*/g, "")));
       continue;
     }
     if ((m = t.match(H3)) || (m = t.match(H4PLUS))) {
       flushAll();
-      blocks.push(headingBlock(3, m[1]));
+      blocks.push(headingBlock(3, m[1].replace(/\*\*/g, "")));
+      continue;
+    }
+    const lab = !inWorkout && !isBulletLine(line) ? matchLabel(t) : null;
+    if (lab) {
+      flushAll();
+      blocks.push(headingBlock(3, lab.label));
+      if (lab.rest) para.push(lab.rest);
       continue;
     }
     if ((m = t.match(SEC_3))) {
@@ -173,9 +259,9 @@ export function structureDocumentText(raw: string): ContentBlock[] {
       blocks.push(headingBlock(2, `${m[1]} ${m[2].trim()}`));
       continue;
     }
-    if ((m = t.match(SEC_1)) && !isBulletLine(line)) {
+    if ((m = t.match(SEC_1)) && !list.length && !inWorkout && isTitleLike(t)) {
       flushAll();
-      blocks.push(headingBlock(2, `${m[1]} ${m[2].trim()}`));
+      blocks.push(headingBlock(3, `${m[1]}. ${m[2].trim()}`));
       continue;
     }
     if (CHAPTER_TITLE.test(t) && t.length < 42) {
@@ -222,6 +308,35 @@ export function structureDocumentText(raw: string): ContentBlock[] {
   return blocks;
 }
 
+/**
+ * Flatten per-source-page blocks into one flow, re-joining a paragraph (or
+ * list) that the source page break cut in half.
+ */
+export function joinPageBlocks(pages: ContentBlock[][]): ContentBlock[] {
+  const out: ContentBlock[] = [];
+  for (const page of pages) {
+    page.forEach((b, i) => {
+      const prev = out[out.length - 1];
+      if (i === 0 && prev && prev.type === b.type) {
+        if (
+          b.type === "paragraph" &&
+          !/[.!?:]$/.test(prev.text.trim()) &&
+          /^[a-z(,;$]/.test(b.text.trim())
+        ) {
+          out[out.length - 1] = { ...prev, text: `${prev.text} ${b.text}` };
+          return;
+        }
+        if (b.type === "list" && prev.variant === b.variant) {
+          out[out.length - 1] = { ...prev, text: `${prev.text}\n${b.text}` };
+          return;
+        }
+      }
+      out.push(b);
+    });
+  }
+  return out;
+}
+
 /** Convert an array of transcribed page texts into structured book pages filled to capacity. */
 export function structureDocumentPages(
   pageTexts: string[],
@@ -229,10 +344,9 @@ export function structureDocumentPages(
   paperSize: PaperSize = "A4",
   cols: number = 2,
 ): BookPage[] {
-  const allBlocks: ContentBlock[] = [];
-  pageTexts.forEach((txt) => {
-    allBlocks.push(...structureDocumentText(txt));
-  });
+  const allBlocks = joinPageBlocks(
+    pageTexts.map((txt) => structureDocumentText(txt)),
+  );
 
   const pages = packBlocksIntoPages(
     allBlocks,
