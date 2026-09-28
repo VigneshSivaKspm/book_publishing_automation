@@ -43,3 +43,18 @@ export function validateStructuredOcrResponse(value: unknown): StructuredOcrDocu
   }
   return value as StructuredOcrDocument;
 }
+
+export function structuredOcrToText(document: StructuredOcrDocument, mode: "qa" | "document"): string {
+  return document.pages.flatMap((page) => page.blocks.slice().sort((a, b) => a.order - b.order).map((block) => {
+    if (mode === "qa" && block.blockType === "mcq") {
+      const stem = `${block.questionNumber ?? "?"}. ${block.text}${block.yearTag ? ` (${block.yearTag})` : ""}`;
+      return [stem, ...(block.options || []).map((option) => `${option.label}) ${option.text}`)].join("\n");
+    }
+    if (block.blockType === "chapter-title" || block.blockType === "heading1") return `# ${block.text}`;
+    if (block.blockType === "heading2") return `## ${block.text}`;
+    if (block.blockType === "heading3") return `### ${block.text}`;
+    if (["definition", "theorem", "example", "solution", "note"].includes(block.blockType)) return `#### ${block.blockType[0].toUpperCase()}${block.blockType.slice(1)}\n${block.text}`;
+    if (block.blockType === "math") return `$$${block.mathLatex || block.text}$$`;
+    return block.text;
+  })).join("\n\n");
+}

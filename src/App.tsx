@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import CommandPalette from "./components/CommandPalette";
-import ExportModal from "./components/ExportModal";
 import NewBookModal from "./components/NewBookModal";
 import Sidebar from "./components/Sidebar";
 import UserManagementPanel from "./components/UserManagementPanel";
@@ -20,6 +19,7 @@ import { createNewBook } from "./types";
 import { reflowBookOverflow } from "./lib/bookAi";
 import { loadLibrary as loadPersistentLibrary, restoreProject, saveLibrary } from "./lib/persistence";
 import { createFromTemplate } from "./lib/templates";
+import { exportBookPrintable } from "./lib/printExport";
 
 const LIBRARY_KEY = "figma.library.v1";
 
@@ -402,7 +402,10 @@ export default function App() {
   const [activePage, setActivePage] = useState<Page>("dashboard");
   const [showNewBook, setShowNewBook] = useState(false);
   const [newBookMode, setNewBookMode] = useState<BookMode>("qa");
-  const [showExport, setShowExport] = useState(false);
+  const handleExportRequest = () => {
+    if (activeBook) exportBookPrintable(activeBook);
+    else window.alert("Open a publication to preview or export it.");
+  };
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [activeBook, setActiveBook] = useState<BookDocument | null>(null);
   const [library, setLibrary] = useState<BookDocument[]>([]);
@@ -449,7 +452,7 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
-        setShowExport(true);
+        if (activeBook) exportBookPrintable(activeBook);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -491,7 +494,6 @@ export default function App() {
           }}
           saveState={saveState}
         />
-        <ExportModal open={showExport} onClose={() => setShowExport(false)} />
         <CommandPalette
           open={showCommandPalette}
           onClose={() => setShowCommandPalette(false)}
@@ -501,7 +503,7 @@ export default function App() {
               setActivePage(page);
             }
           }}
-          onExport={() => setShowExport(true)}
+          onExport={handleExportRequest}
           onAction={(action) => {
             if (action === "new-book") setShowNewBook(true);
           }}
@@ -525,7 +527,7 @@ export default function App() {
           <Dashboard
             library={library}
             onNavigate={setActivePage}
-            onExport={() => setShowExport(true)}
+            onExport={handleExportRequest}
             onCommand={() => setShowCommandPalette(true)}
             onNewBook={(mode) => handleOpenNewBook(mode)}
             onOpenBook={(book) => setActiveBook(book)}
@@ -537,7 +539,7 @@ export default function App() {
         return (
           <Editor
             onNavigate={setActivePage}
-            onExport={() => setShowExport(true)}
+            onExport={handleExportRequest}
             onOpenBook={(book) => setActiveBook(book)}
           />
         );
@@ -552,7 +554,7 @@ export default function App() {
           <Dashboard
             library={library}
             onNavigate={setActivePage}
-            onExport={() => setShowExport(true)}
+            onExport={handleExportRequest}
             onCommand={() => setShowCommandPalette(true)}
             onNewBook={(mode) => handleOpenNewBook(mode)}
             onOpenBook={(book) => setActiveBook(book)}
@@ -568,7 +570,7 @@ export default function App() {
       <Sidebar
         activePage={activePage}
         onNavigate={setActivePage}
-        onExport={() => setShowExport(true)}
+        onExport={handleExportRequest}
         onCommandPalette={() => setShowCommandPalette(true)}
         onNewBook={(mode) => handleOpenNewBook(mode)}
       />
@@ -582,12 +584,11 @@ export default function App() {
         onCreate={handleCreate}
         initialMode={newBookMode}
       />
-      <ExportModal open={showExport} onClose={() => setShowExport(false)} />
       <CommandPalette
         open={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}
         onNavigate={setActivePage}
-        onExport={() => setShowExport(true)}
+        onExport={handleExportRequest}
         onAction={(action) => {
           if (action === "new-book") setShowNewBook(true);
         }}

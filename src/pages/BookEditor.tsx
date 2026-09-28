@@ -85,6 +85,9 @@ interface BookEditorProps {
 
 type Ribbon = "stage1" | "stage2" | "stage3" | "stage4";
 
+// Paid answer solving is always an explicit, separately confirmed user action.
+const AUTO_SOLVE_AFTER_IMPORT = false;
+
 function cloneBook(b: BookDocument): BookDocument {
   return JSON.parse(JSON.stringify(b)) as BookDocument;
 }
@@ -477,7 +480,7 @@ export default function BookEditor({
     const nextPages = book.pages.map((p) => ({
       ...p,
       blocks: p.blocks.map((b) =>
-        b.id === blockId ? { ...b, answer: nextAns, answerSource: "manual", text: updatedText } : b,
+        b.id === blockId ? { ...b, answer: nextAns, answerSource: "manual" as const, text: updatedText } : b,
       ),
     }));
     commit(
@@ -1399,7 +1402,7 @@ export default function BookEditor({
 
       let outBlocks = result.blocks;
       let solvedCount = 0;
-      if (!isSyllabus && false) {
+      if (!isSyllabus && AUTO_SOLVE_AFTER_IMPORT) {
         const unanswered = outBlocks.filter(
           (b) => b.type === "mcq" && !b.answer,
         ).length;
@@ -1513,7 +1516,7 @@ export default function BookEditor({
           chapterMeta.number = meta.number;
 
         if (isSyllabus) {
-          contentPages.push(structureDocumentText(slideText));
+          contentPages.push(structureDocumentText(slideText).map((block) => ({ ...block, sourcePage: i + 1, sourceRef: file.name })));
           continue;
         }
         const structured = structureExamText(slideText);
@@ -1523,7 +1526,7 @@ export default function BookEditor({
         ) {
           Object.assign(scannedKey, structured.answerKey);
         }
-        if (structured.blocks.length > 0) contentPages.push(structured.blocks);
+        if (structured.blocks.length > 0) contentPages.push(structured.blocks.map((block) => ({ ...block, sourcePage: i + 1, sourceRef: file.name })));
       }
 
       // Syllabus: the leading "# Chapter Title" belongs in the header badge, not the body.
@@ -1535,7 +1538,7 @@ export default function BookEditor({
       // 2. Question Bank: apply the scanned answer key, then AI-solve only the leftovers.
       let totalSolvedCount = 0;
       let appliedFromKey = 0;
-      if (!isSyllabus && false) {
+      if (!isSyllabus && AUTO_SOLVE_AFTER_IMPORT) {
         const hasKey = Object.keys(scannedKey).length > 0;
         for (let p = 0; p < contentPages.length; p++) {
           if (hasKey) {
@@ -2177,7 +2180,7 @@ export default function BookEditor({
             </div>
 
             <div className="flex border border-slate-300 bg-white p-0.5">
-              {(["A4", "B5", "8×8"] as PaperSize[]).map((s) => (
+              {(["REFERENCE_180_240", "A4", "B5", "8×8"] as PaperSize[]).map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -2190,7 +2193,7 @@ export default function BookEditor({
                       : "text-slate-700 hover:bg-slate-100"
                   }`}
                 >
-                  {s}
+                  {s === "REFERENCE_180_240" ? "180×240" : s}
                 </button>
               ))}
             </div>

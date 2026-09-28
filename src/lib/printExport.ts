@@ -95,6 +95,12 @@ function blockHtml(
     }
     return `<div style="margin:3pt 0 3pt 11pt">${items}</div>`
   }
+  if (['definition', 'theorem', 'example', 'solution', 'note', 'exercise'].includes(type)) {
+    const label = type.charAt(0).toUpperCase() + type.slice(1)
+    const exercise = type === 'exercise'
+    return `<aside class="academic-block academic-${type}" style="margin:6pt 0;padding:5pt 7pt;border-left:2pt solid ${exercise ? '#4F46E5' : '#334155'};background:${exercise ? '#EEF2FF' : '#F8FAFC'};break-inside:avoid;page-break-inside:avoid"><strong style="display:block;margin-bottom:2pt;font-size:${Math.max(8, effSize - 1)}pt;text-transform:uppercase;letter-spacing:.04em">${label}</strong><div style="text-align:${a};${sizeStyle}">${renderTextWithMath(text).replace(/\n+/g, '<br/>')}</div></aside>`
+  }
+  if (type === 'page-break') return '<div style="break-after:page;page-break-after:always"></div>'
   if (type === 'table') {
     const rows = text
       .split('\n')
