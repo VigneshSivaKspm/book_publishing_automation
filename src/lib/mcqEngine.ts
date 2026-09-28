@@ -385,12 +385,8 @@ export function inferAnswer(mcq: ParsedMcq): string | undefined {
   return undefined
 }
 
-function getOpenAiApiKey(): string {
-  if (typeof window !== 'undefined') {
-    const localKey = localStorage.getItem('OPENAI_API_KEY')
-    if (localKey && localKey.trim()) return localKey.trim()
-  }
-  return import.meta.env.VITE_OPENAI_API_KEY || ''
+function getAiProxyUrl(): string {
+  return (import.meta.env.VITE_AI_PROXY_URL || '').trim()
 }
 
 /** Use OpenAI ChatGPT AI (gpt-4o-mini) to solve and auto-guess correct answers for questions */
@@ -405,7 +401,8 @@ export async function aiSolveUnansweredMcqs(
 
   if (unanswered.length > 0) {
     try {
-      const apiKey = getOpenAiApiKey()
+      const proxyUrl = getAiProxyUrl()
+      if (!proxyUrl) throw new Error('AI proxy unavailable')
       addLog({
         category: 'ai-solver',
         level: 'info',
@@ -419,11 +416,11 @@ Return strictly valid JSON format like: {"1": "A", "2": "C", ...}
 Questions:
 ${qList.slice(0, 8000)}`
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch(proxyUrl, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          'X-Publication-Task': 'solve-mcqs',
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
@@ -443,8 +440,9 @@ ${qList.slice(0, 8000)}`
           if (idx < 0) return b
 
           const ansKey = String(idx + 1)
-          const guessed = (ansMap[ansKey] || ansMap[String(b.id)] || 'A').toUpperCase()
-          const letter = /^[A-E]$/.test(guessed) ? guessed : 'A'
+          const guessed = (ansMap[ansKey] || ansMap[String(b.id)] || '').toUpperCase()
+          if (!/^[A-E]$/.test(guessed)) return b
+          const letter = guessed
 
           solvedCount++
           // Attach [✓ A] checkmark to block text
@@ -460,6 +458,7 @@ ${qList.slice(0, 8000)}`
             ...b,
             answer: letter,
             text: updatedText,
+            answerSource: 'ai-inferred' as const,
           }
         })
 
@@ -484,6 +483,10 @@ ${qList.slice(0, 8000)}`
     }
   }
 
+  // Provider failure is not permission to invent answers. Preserve unresolved source data.
+  return { updatedBlocks: blocks, solvedCount: 0 }
+
+  // Legacy fallback retained below as unreachable documentation for migration review.
   // Local fallback heuristic for any unanswered
   const fallbackBlocks = blocks.map((b) => {
     if (b.type !== 'mcq') return b

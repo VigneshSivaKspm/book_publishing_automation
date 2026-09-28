@@ -14,9 +14,12 @@ import Dashboard from "./pages/Dashboard";
 import Editor from "./pages/Editor";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
+import ImportQueue from "./pages/ImportQueue";
 import type { BookDocument, BookMode, Page } from "./types";
 import { createNewBook } from "./types";
 import { reflowBookOverflow } from "./lib/bookAi";
+import { loadLibrary as loadPersistentLibrary, restoreProject, saveLibrary } from "./lib/persistence";
+import { createFromTemplate } from "./lib/templates";
 
 const LIBRARY_KEY = "figma.library.v1";
 
@@ -402,7 +405,9 @@ export default function App() {
   const [showExport, setShowExport] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [activeBook, setActiveBook] = useState<BookDocument | null>(null);
-  const [library, setLibrary] = useState<BookDocument[]>(() => loadLibrary());
+  const [library, setLibrary] = useState<BookDocument[]>([]);
+  const [libraryReady, setLibraryReady] = useState(false);
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
 
   const handleOpenNewBook = (mode: BookMode = "qa") => {
     setNewBookMode(mode);
@@ -410,12 +415,23 @@ export default function App() {
   };
 
   useEffect(() => {
-    try {
-      localStorage.setItem(LIBRARY_KEY, JSON.stringify(library));
-    } catch {
-      /* ignore */
-    }
-  }, [library]);
+    let mounted = true;
+    loadPersistentLibrary().then((books) => {
+      if (!mounted) return;
+      setLibrary(books);
+      setLibraryReady(true);
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!libraryReady) return;
+    setSaveState("saving");
+    const timer = window.setTimeout(() => {
+      saveLibrary(library).then(() => setSaveState("saved")).catch(() => setSaveState("error"));
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [library, libraryReady]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -454,6 +470,15 @@ export default function App() {
     });
   };
 
+  const handleRestore = async (file: File) => {
+    try {
+      const restored = await restoreProject(file);
+      handleCreate(restored);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Could not restore this project.");
+    }
+  };
+
   if (activeBook) {
     return (
       <div className="h-screen w-screen overflow-hidden bg-slate-900">
@@ -464,6 +489,7 @@ export default function App() {
             setActiveBook(null);
             setActivePage("dashboard");
           }}
+          saveState={saveState}
         />
         <ExportModal open={showExport} onClose={() => setShowExport(false)} />
         <CommandPalette
@@ -490,6 +516,7 @@ export default function App() {
   };
 
   const renderCurrentPage = () => {
+    if (!libraryReady) return <div className="h-full flex items-center justify-center bg-slate-50 text-sm text-slate-500" role="status">Loading local publications…</div>;
     switch (activePage) {
       case "dashboard":
       case "documents":
@@ -503,6 +530,7 @@ export default function App() {
             onNewBook={(mode) => handleOpenNewBook(mode)}
             onOpenBook={(book) => setActiveBook(book)}
             onDeleteBook={handleDeleteBook}
+            onRestore={handleRestore}
           />
         );
       case "editor":
@@ -514,7 +542,11 @@ export default function App() {
           />
         );
       case "templates":
-        return <TemplatesPanel />;
+        return <TemplatesPanel onSelectTemplate={(template) => handleCreate(createFromTemplate(template, template.title))} />;
+      case "settings":
+        return <Settings onNavigate={setActivePage} />;
+      case "import-queue":
+        return <ImportQueue />;
       default:
         return (
           <Dashboard
@@ -525,6 +557,7 @@ export default function App() {
             onNewBook={(mode) => handleOpenNewBook(mode)}
             onOpenBook={(book) => setActiveBook(book)}
             onDeleteBook={handleDeleteBook}
+            onRestore={handleRestore}
           />
         );
     }

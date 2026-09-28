@@ -26,7 +26,7 @@
   --foreground: #1A2332;
   --card: #FFFFFF;
   --card-foreground: #1A2332;
-  --primary: #0E7490;
+  --primary: #4F46E5;
   --primary-foreground: #FFFFFF;
   --secondary: #E8EEF3;
   --secondary-foreground: #3D4F63;
@@ -35,8 +35,8 @@
   --accent: #0D9488;
   --accent-foreground: #FFFFFF;
   --border: #D5DEE8;
-  --ring: #0E7490;
-  --radius: 10px;
+  --ring: #4F46E5;
+  --radius: 8px;
 
   --success: #059669;
   --warning: #D97706;
@@ -67,6 +67,61 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 2px solid #6366F1; outline-offset: 2px; }
+
+.primary-button, .secondary-button, .danger-button, .topbar-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color .12s, border-color .12s, color .12s;
+}
+.primary-button { background: #4F46E5; border: 1px solid #4F46E5; color: white; }
+.primary-button:hover { background: #4338CA; }
+.secondary-button { background: white; border: 1px solid #CBD5E1; color: #334155; }
+.secondary-button:hover { background: #F8FAFC; border-color: #94A3B8; }
+.danger-button { background: white; border: 1px solid #FECDD3; color: #BE123C; }
+.danger-button:hover { background: #FFF1F2; }
+.topbar-button { min-height: 30px; height: 30px; border: 1px solid #334155; color: #E2E8F0; background: #1E293B; }
+.topbar-button:hover { background: #334155; color: white; }
+.icon-button { width: 32px; height: 32px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; }
+.icon-button:hover { background: #F1F5F9; }
+.control-select { height: 36px; padding: 0 28px 0 10px; border: 1px solid #CBD5E1; border-radius: 6px; background: white; font-size: 12px; color: #334155; }
+.creation-path { min-height: 86px; padding: 16px; border: 1px solid #CBD5E1; border-radius: 8px; background: white; display: flex; align-items: center; gap: 14px; transition: border-color .12s, box-shadow .12s; }
+.creation-path:hover { border-color: #818CF8; box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+.creation-icon { width: 40px; height: 40px; border-radius: 7px; background: #EEF2FF; color: #4F46E5; display: flex; align-items: center; justify-content: center; flex: none; }
+.status-badge { display: inline-flex; align-items: center; min-height: 22px; padding: 0 7px; border-radius: 999px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.status-good { background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0; }
+.status-warning { background: #FFFBEB; color: #B45309; border: 1px solid #FDE68A; }
+.status-error { background: #FFF1F2; color: #BE123C; border: 1px solid #FECDD3; }
+.editor-navigator { width: 224px; min-width: 224px; height: 100%; background: #F8FAFC; border-right: 1px solid #CBD5E1; display: flex; flex-direction: column; }
+.editor-inspector { width: 280px; min-width: 280px; height: 100%; background: #F8FAFC; border-left: 1px solid #CBD5E1; display: flex; flex-direction: column; }
+.editor-pasteboard { background-color: #CBD0D8; background-image: radial-gradient(#AEB5C0 0.7px, transparent 0.7px); background-size: 16px 16px; }
+.inspector-section { padding-bottom: 16px; border-bottom: 1px solid #E2E8F0; }
+.inspector-section > h3 { margin: 0 0 10px; font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .08em; }
+.check-row { min-height: 32px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: #334155; }
+.check-row input { accent-color: #4F46E5; }
+.segmented { height: 36px; display: grid; grid-template-columns: 1fr 1fr; padding: 2px; border: 1px solid #CBD5E1; border-radius: 6px; background: #F1F5F9; }
+.segmented button { border-radius: 4px; font-size: 11px; color: #64748B; }
+.segmented button.active { background: white; color: #312E81; box-shadow: 0 1px 2px rgba(15,23,42,.08); font-weight: 600; }
+
+@media (max-width: 1279px) {
+  .editor-inspector { display: none; }
+  .editor-navigator { width: 188px; min-width: 188px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
 .font-serif {

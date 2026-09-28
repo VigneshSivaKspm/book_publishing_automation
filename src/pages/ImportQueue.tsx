@@ -1,0 +1,5 @@
+import Icon from "../components/Icon";
+
+export default function ImportQueue() {
+  return <div className="h-full bg-slate-50"><header className="h-16 px-8 flex items-center border-b border-slate-200 bg-white"><div><h1 className="text-base font-semibold text-slate-950">Import queue</h1><p className="text-xs text-slate-500">Document processing jobs on this device</p></div><span className="ml-auto status-badge status-good">Idle</span></header><main className="h-[calc(100%-4rem)] flex items-center justify-center p-8"><div className="max-w-sm text-center"><div className="mx-auto w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400"><Icon name="import" className="w-6 h-6" /></div><h2 className="mt-4 text-sm font-semibold text-slate-900">No active imports</h2><p className="mt-1 text-xs leading-5 text-slate-500">Start an import from inside a publication. Processing progress and page-specific failures appear there; completed jobs are applied directly to the local project.</p></div></main></div>;
+}

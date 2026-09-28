@@ -1,275 +1,30 @@
-import { useState } from 'react'
-import type { BookDocument, BookMode, NavHandler } from '../types'
-import { estimateBookStats } from '../lib/bookAi'
+import { useMemo, useRef, useState } from "react";
+import type { BookDocument, BookMode, NavHandler } from "../types";
+import { PAPER_LABELS } from "../types";
+import { estimateBookStats } from "../lib/bookAi";
+import { runPreflight } from "../lib/preflight";
+import Icon from "../components/Icon";
 
-interface DashboardProps {
-  onNavigate: NavHandler
-  onExport: () => void
-  onCommand: () => void
-  onNewBook: (mode?: BookMode) => void
-  library: BookDocument[]
-  onOpenBook: (book: BookDocument) => void
-  onDeleteBook: (id: string) => void
-}
-
-export default function Dashboard({
-  library,
-  onNewBook,
-  onOpenBook,
-  onDeleteBook,
-}: DashboardProps) {
-  const [filterMode, setFilterMode] = useState<'all' | 'qa' | 'questions-only'>('all')
-  const [searchQuery, setSearchQuery] = useState('')
-
-  const filteredLibrary = library.filter((book) => {
-    if (filterMode !== 'all') {
-      const mode = book.bookMode || 'qa'
-      if (mode !== filterMode) return false
-    }
-    if (searchQuery.trim()) {
-      return book.title.toLowerCase().includes(searchQuery.toLowerCase())
-    }
-    return true
-  })
-
-  return (
-    <div className="h-full overflow-y-auto bg-slate-50 font-sans">
-      {/* Header Bar */}
-      <header className="sticky top-0 z-10 bg-white border-b border-slate-200 px-8 py-4">
-        <div className="max-w-[1400px] mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-[18px] font-bold text-slate-900 tracking-tight">
-              Publishing Workspace
-            </h1>
-            <p className="text-[12px] text-slate-500 font-medium mt-0.5">
-              Create and edit Question Paper Books and Course Syllabus Books
-            </p>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="px-8 py-7 max-w-[1400px] mx-auto space-y-7">
-        {/* 2 Primary Action Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* Question Bank Creation Card */}
-          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs hover:border-slate-300 transition-all flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 font-bold flex items-center justify-center border border-slate-200">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200 tracking-wider">
-                  Question Bank Mode
-                </span>
-              </div>
-              <h2 className="text-[17px] font-bold text-slate-900 mb-1.5">
-                Question Paper & Question Bank Book
-              </h2>
-              <p className="text-[13px] text-slate-600 leading-relaxed mb-5">
-                Build exam question papers with multiple choice questions (A–E), auto-generating answer keys, AI answer solver, and 2-column layout.
-              </p>
-            </div>
-            <button
-              onClick={() => onNewBook('qa')}
-              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[13px] font-bold transition-all shadow-xs"
-            >
-              + Create Question Bank Book
-            </button>
-          </div>
-
-          {/* Syllabus Book Creation Card */}
-          <div className="p-6 rounded-2xl bg-white border border-slate-200 shadow-xs hover:border-slate-300 transition-all flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 font-bold flex items-center justify-center border border-slate-200">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                  </svg>
-                </div>
-                <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200 tracking-wider">
-                  Syllabus Mode
-                </span>
-              </div>
-              <h2 className="text-[17px] font-bold text-slate-900 mb-1.5">
-                Syllabus & Course Study Book
-              </h2>
-              <p className="text-[13px] text-slate-600 leading-relaxed mb-5">
-                Build course manuals and study materials with chapter trees, sub-headings (1.1, 1.2), theory prose, bullet points, and LaTeX math formulas.
-              </p>
-            </div>
-            <button
-              onClick={() => onNewBook('questions-only')}
-              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[13px] font-bold transition-all shadow-xs"
-            >
-              + Create Syllabus Book
-            </button>
-          </div>
-        </div>
-
-        {/* Document Library */}
-        <div className="rounded-2xl bg-white border border-slate-200 shadow-xs overflow-hidden">
-          {/* Header & Filters */}
-          <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50">
-            <div>
-              <h3 className="text-[15px] font-bold text-slate-900">
-                Your Document Library ({library.length})
-              </h3>
-              <p className="text-[11px] text-slate-500 font-medium">
-                Click any book below to open the editor
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {/* Filter Tabs */}
-              <div className="flex items-center bg-slate-200/60 p-0.5 rounded-lg border border-slate-300">
-                <button
-                  onClick={() => setFilterMode('all')}
-                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${
-                    filterMode === 'all'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  All Books
-                </button>
-                <button
-                  onClick={() => setFilterMode('qa')}
-                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${
-                    filterMode === 'qa'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Question Banks
-                </button>
-                <button
-                  onClick={() => setFilterMode('questions-only')}
-                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${
-                    filterMode === 'questions-only'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Syllabus Books
-                </button>
-              </div>
-
-              {/* Search Box */}
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search documents…"
-                className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-[12px] text-slate-900 placeholder-slate-400 outline-none focus:border-slate-500 w-44"
-              />
-            </div>
-          </div>
-
-          {/* Book Items */}
-          {filteredLibrary.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3 border border-slate-200">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <h4 className="text-[15px] font-bold text-slate-800 mb-1">
-                No documents found
-              </h4>
-              <p className="text-[12px] text-slate-500 max-w-sm mx-auto mb-5">
-                {searchQuery || filterMode !== 'all'
-                  ? 'No documents match your filter or search criteria.'
-                  : 'Start by creating your first Question Bank or Syllabus Book.'}
-              </p>
-              <div className="flex justify-center gap-3">
-                <button
-                  onClick={() => onNewBook('qa')}
-                  className="px-4 py-2 rounded-xl text-[12px] font-bold text-white bg-slate-900 hover:bg-slate-800 transition-all"
-                >
-                  + Question Bank
-                </button>
-                <button
-                  onClick={() => onNewBook('questions-only')}
-                  className="px-4 py-2 rounded-xl text-[12px] font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-all"
-                >
-                  + Syllabus Book
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-200">
-              {filteredLibrary.map((book) => {
-                const stats = estimateBookStats(book)
-                const isSyllabus = book.bookMode === 'questions-only'
-
-                return (
-                  <div
-                    key={book.id}
-                    onClick={() => onOpenBook(book)}
-                    className="p-5 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center flex-shrink-0 border border-slate-200">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {isSyllabus ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                          ) : (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          )}
-                        </svg>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-[14px] font-bold text-slate-900 group-hover:text-slate-700 transition-colors truncate">
-                            {book.title}
-                          </h4>
-                          <span className="text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded flex-shrink-0 bg-slate-100 text-slate-700 border border-slate-200">
-                            {isSyllabus ? 'Syllabus Book' : 'Question Bank'}
-                          </span>
-                        </div>
-                        <p className="text-[12px] text-slate-500 font-medium mt-0.5">
-                          Paper Size: <span className="font-semibold text-slate-700">{book.paperSize}</span> ·{' '}
-                          <span className="font-semibold text-slate-700">{stats.pages}</span> pages ·{' '}
-                          <span className="font-semibold text-slate-700">{stats.words.toLocaleString()}</span> words
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (window.confirm(`Are you sure you want to delete "${book.title}"?`)) {
-                            onDeleteBook(book.id)
-                          }
-                        }}
-                        className="px-3 py-1.5 text-[11.5px] font-bold rounded-lg text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-all"
-                        title="Delete book"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onOpenBook(book)
-                        }}
-                        className="px-4 py-1.5 text-[12px] font-bold rounded-lg text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-xs"
-                      >
-                        Open Editor →
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </main>
-    </div>
-  )
+export default function Dashboard({ library, onNewBook, onOpenBook, onDeleteBook, onRestore }: { onNavigate: NavHandler; onExport: () => void; onCommand: () => void; onNewBook: (mode?: BookMode) => void; library: BookDocument[]; onOpenBook: (book: BookDocument) => void; onDeleteBook: (id: string) => void; onRestore?: (file: File) => void }) {
+  const [filter, setFilter] = useState<"all" | "qa" | "questions-only">("all");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<"updated" | "title">("updated");
+  const restoreRef = useRef<HTMLInputElement>(null);
+  const filtered = useMemo(() => library.filter((book) => (filter === "all" || (book.bookMode || "qa") === filter) && book.title.toLowerCase().includes(query.trim().toLowerCase())).sort((a, b) => sort === "title" ? a.title.localeCompare(b.title) : b.updatedAt.localeCompare(a.updatedAt)), [library, filter, query, sort]);
+  const relative = (iso: string) => { const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)); return minutes < 1 ? "Just now" : minutes < 60 ? `${minutes}m ago` : minutes < 1440 ? `${Math.round(minutes / 60)}h ago` : new Date(iso).toLocaleDateString(); };
+  return <div className="h-full overflow-y-auto bg-slate-50">
+    <header className="sticky top-0 z-10 h-16 px-8 flex items-center border-b border-slate-200 bg-white"><div><h1 className="text-base font-semibold text-slate-950">Library</h1><p className="text-xs text-slate-500">Local academic publications</p></div><div className="ml-auto flex items-center gap-2"><button className="secondary-button" onClick={() => restoreRef.current?.click()}><Icon name="import" className="w-3.5 h-3.5" />Restore project</button><button className="primary-button" onClick={() => onNewBook("qa")}><Icon name="plus" className="w-3.5 h-3.5" />Create publication</button><input ref={restoreRef} type="file" accept=".json,.publication.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onRestore?.(file); event.target.value = ""; }} /></div></header>
+    <main className="max-w-[1400px] mx-auto px-8 py-7">
+      <section className="grid grid-cols-2 gap-3 mb-7">
+        <button onClick={() => onNewBook("qa")} className="creation-path"><div className="creation-icon"><Icon name="question" className="w-5 h-5" /></div><div className="text-left"><span className="text-sm font-semibold text-slate-950">Question Bank</span><p className="mt-0.5 text-xs text-slate-500">MCQs, A–E options, math, verified answers and six-column answer keys</p></div><Icon name="chevron" className="w-4 h-4 ml-auto text-slate-400" /></button>
+        <button onClick={() => onNewBook("questions-only")} className="creation-path"><div className="creation-icon"><Icon name="book" className="w-5 h-5" /></div><div className="text-left"><span className="text-sm font-semibold text-slate-950">Study Book / Syllabus</span><p className="mt-0.5 text-xs text-slate-500">Chapters, sections, theorem blocks, examples, exercises and tables</p></div><Icon name="chevron" className="w-4 h-4 ml-auto text-slate-400" /></button>
+      </section>
+      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="h-14 px-4 flex items-center border-b border-slate-200"><h2 className="text-sm font-semibold text-slate-900">Recent publications <span className="font-normal text-slate-400">{library.length}</span></h2><div className="ml-auto flex items-center gap-2"><div className="relative"><Icon name="search" className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" /><input aria-label="Search publications" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="h-9 w-52 pl-8 pr-3 text-xs border border-slate-300 rounded-md outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500" /></div><select aria-label="Filter publication mode" className="control-select" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}><option value="all">All modes</option><option value="qa">Question Bank</option><option value="questions-only">Study Book</option></select><select aria-label="Sort publications" className="control-select" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="updated">Last edited</option><option value="title">Title</option></select></div></div>
+        {filtered.length === 0 ? <div className="py-16 px-6 text-center"><div className="w-12 h-12 mx-auto rounded-full bg-slate-100 text-slate-400 flex items-center justify-center"><Icon name="library" className="w-6 h-6" /></div><h3 className="mt-4 text-sm font-semibold text-slate-900">{library.length ? "No matching publications" : "Create your first publication"}</h3><p className="mt-1 text-xs text-slate-500">{library.length ? "Adjust the search or filters." : "Choose Question Bank or Study Book. Your work autosaves locally."}</p>{!library.length && <button onClick={() => onNewBook("qa")} className="primary-button mt-5"><Icon name="plus" className="w-3.5 h-3.5" />Create publication</button>}</div> : <div className="divide-y divide-slate-100">{filtered.map((book) => { const stats = estimateBookStats(book); const issues = runPreflight(book); const blocking = issues.filter((item) => item.severity === "error").length; return <article key={book.id} className="group min-h-24 px-4 py-3 grid grid-cols-[64px_minmax(240px,1fr)_130px_140px_110px_72px] gap-4 items-center hover:bg-slate-50 cursor-pointer" onClick={() => onOpenBook(book)} onKeyDown={(event) => event.key === "Enter" && onOpenBook(book)} tabIndex={0}>
+          <div className="w-12 h-16 bg-[#fffef9] border border-slate-300 shadow-sm p-1.5"><div className="h-1 bg-slate-800 mb-1" />{Array.from({ length: 7 }).map((_, index) => <div key={index} className="h-[2px] bg-slate-300 mb-1" />)}</div><div className="min-w-0"><h3 className="text-[13px] font-semibold text-slate-950 truncate">{book.title}</h3><p className="mt-1 text-[11px] text-slate-500 truncate">{book.subtitle || book.headerFooter.chapterTitle || "Untitled chapter"}</p><span className="mt-2 inline-flex text-[9px] font-semibold uppercase tracking-wide text-indigo-700">{book.bookMode === "questions-only" ? "Study Book" : "Question Bank"}</span></div><div><span className="block text-xs font-medium text-slate-700">{stats.pages} page{stats.pages === 1 ? "" : "s"}</span><span className="text-[10px] text-slate-400">{book.headerFooter.layoutColumns} column{book.headerFooter.layoutColumns === 1 ? "" : "s"}</span></div><div><span className="block text-[11px] text-slate-700 truncate" title={PAPER_LABELS[book.paperSize]}>{PAPER_LABELS[book.paperSize]}</span><span className="text-[10px] text-slate-400">Print size</span></div><div>{blocking ? <span className="status-badge status-error">{blocking} blocking</span> : issues.length ? <span className="status-badge status-warning">Review</span> : <span className="status-badge status-good">Ready</span>}<span className="block mt-1 text-[10px] text-slate-400">{relative(book.updatedAt)}</span></div><button aria-label={`Delete ${book.title}`} className="icon-button opacity-0 group-hover:opacity-100 focus:opacity-100 text-slate-400 hover:text-rose-600" onClick={(event) => { event.stopPropagation(); if (window.confirm(`Delete “${book.title}”? This cannot be undone.`)) onDeleteBook(book.id); }}><Icon name="trash" className="w-4 h-4" /></button>
+        </article>; })}</div>}
+      </section>
+    </main>
+  </div>;
 }

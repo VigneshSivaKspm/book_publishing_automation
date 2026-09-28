@@ -167,8 +167,7 @@ export function buildPrintableHtml(book: BookDocument): string {
   const presetFontLinks = googleFontLinks([book.fontId, book.mathFontId])
     .map((href) => `<link rel="stylesheet" href="${href}"/>`)
     .join('\n')
-  const pageCss =
-    book.paperSize === 'A4' ? 'A4' : book.paperSize === 'B5' ? 'B5' : '203mm 203mm'
+  const pageCss = `${dim.widthMm}mm ${dim.heightMm}mm`
 
   const columnsCount = hf.layoutColumns || 2
   const showDivider = hf.showColumnDivider !== false
@@ -256,7 +255,7 @@ ${embeddedFonts}
     height: ${dim.heightMm}mm;
     margin: 0 auto 16px;
     background: #FFFFFF;
-    padding: 14mm 16mm 14mm;
+    padding: ${hf.marginTopMm ?? 14}mm ${hf.marginRightMm ?? 16}mm ${hf.marginBottomMm ?? 14}mm ${hf.marginLeftMm ?? 16}mm;
     display: flex;
     flex-direction: column;
     page-break-after: always;
@@ -397,7 +396,7 @@ ${embeddedFonts}
   }
   .body.flow {
     column-count: 2;
-    column-gap: 22px;
+    column-gap: ${hf.columnGapMm ?? 6}mm;
     column-fill: auto;
     overflow: hidden;
     orphans: 2;
@@ -499,7 +498,9 @@ ${embeddedFonts}
   @media print {
     body { background: white; }
     .page { box-shadow: none; margin: 0; }
+    .page:last-child { page-break-after: auto; break-after: auto; }
     .no-print { display: none !important; }
+    .katex, .katex-display { max-width: 100%; overflow: visible; }
   }
 </style>
 </head>

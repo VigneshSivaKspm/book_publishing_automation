@@ -10,7 +10,7 @@ interface NewBookModalProps {
 
 export default function NewBookModal({ open, onClose, onCreate, initialMode = 'qa' }: NewBookModalProps) {
   const [title, setTitle] = useState('')
-  const [paperSize, setPaperSize] = useState<PaperSize>('A4')
+  const [paperSize, setPaperSize] = useState<PaperSize>('REFERENCE_180_240')
   const [bookMode, setBookMode] = useState<BookMode>(initialMode)
   const [showModeSwitch, setShowModeSwitch] = useState(false)
   const [error, setError] = useState('')
@@ -18,7 +18,7 @@ export default function NewBookModal({ open, onClose, onCreate, initialMode = 'q
   useEffect(() => {
     if (open) {
       setTitle('')
-      setPaperSize('A4')
+      setPaperSize('REFERENCE_180_240')
       setBookMode(initialMode)
       setShowModeSwitch(false)
       setError('')
@@ -53,10 +53,10 @@ export default function NewBookModal({ open, onClose, onCreate, initialMode = 'q
         <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div>
             <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-              {isSyllabus ? 'Syllabus Mode' : 'Question Bank Mode'}
+              {isSyllabus ? 'Study Book' : 'Question Bank'}
             </span>
             <h2 className="text-[16px] font-bold text-slate-900 mt-1">
-              {isSyllabus ? 'Create Syllabus Book' : 'Create Question Bank Book'}
+              {isSyllabus ? 'Create Study Book' : 'Create Question Bank'}
             </h2>
           </div>
           <button
@@ -104,6 +104,7 @@ export default function NewBookModal({ open, onClose, onCreate, initialMode = 'q
             <label className="text-[12px] font-bold text-slate-700 block mb-1.5">
               Paper Size
             </label>
+            <button type="button" onClick={() => setPaperSize('REFERENCE_180_240')} className={`w-full mb-2 py-2.5 rounded-lg text-left px-3 text-[12px] font-semibold border ${paperSize === 'REFERENCE_180_240' ? 'bg-indigo-50 text-indigo-800 border-indigo-400 ring-1 ring-indigo-100' : 'bg-white text-slate-700 border-slate-200'}`}><span className="flex items-center justify-between">Reference Book — 180 × 240 mm <small className="text-[9px] uppercase tracking-wide text-emerald-700">Recommended</small></span></button>
             <div className="flex gap-2">
               {(['A4', 'B5', '8×8'] as PaperSize[]).map((s) => (
                 <button
@@ -159,7 +160,7 @@ export default function NewBookModal({ open, onClose, onCreate, initialMode = 'q
                         : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    <div className="text-[12px] font-bold">Syllabus</div>
+                    <div className="text-[12px] font-bold">Study Book</div>
                     <div className="text-[10px] opacity-80">Theory & Study Guide</div>
                   </button>
                 </div>

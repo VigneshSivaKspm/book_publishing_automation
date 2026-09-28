@@ -28,6 +28,15 @@ export const PAPER_META: Record<
   PaperSize,
   { label: string; dims: string; width: number; height: number; qPerPage: number; fontPx: number; marginMm: number }
 > = {
+  REFERENCE_180_240: {
+    label: 'Reference Book',
+    dims: '180 × 240 mm',
+    width: 270,
+    height: 360,
+    qPerPage: 2,
+    fontPx: 8.5,
+    marginMm: 14,
+  },
   A4: {
     label: 'A4',
     dims: '210 × 297 mm',
@@ -53,6 +62,15 @@ export const PAPER_META: Record<
     height: 280,
     qPerPage: 2,
     fontPx: 8,
+    marginMm: 14,
+  },
+  CUSTOM: {
+    label: 'Custom',
+    dims: '180 × 240 mm',
+    width: 270,
+    height: 360,
+    qPerPage: 2,
+    fontPx: 8.5,
     marginMm: 14,
   },
 }

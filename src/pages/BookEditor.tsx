@@ -67,12 +67,20 @@ import {
   type CustomFontRecord,
 } from "../lib/fonts";
 import FontsPanel from "../components/FontsPanel";
+import DocumentNavigator from "../components/DocumentNavigator";
+import ContextInspector from "../components/ContextInspector";
+import PreflightPanel from "../components/PreflightPanel";
+import Icon from "../components/Icon";
+import { runPreflight, type PreflightIssue } from "../lib/preflight";
+import { downloadProjectBackup } from "../lib/persistence";
+import { PAPER_LABELS } from "../types";
 import "katex/dist/katex.min.css";
 
 interface BookEditorProps {
   book: BookDocument;
   onChange: (book: BookDocument) => void;
   onClose: () => void;
+  saveState?: "saved" | "saving" | "error";
 }
 
 type Ribbon = "stage1" | "stage2" | "stage3" | "stage4";
@@ -208,6 +216,7 @@ export default function BookEditor({
   book: rawBook,
   onChange,
   onClose,
+  saveState = "saved",
 }: BookEditorProps) {
   const book = normalizeBook(rawBook);
   const [ribbon, setRibbon] = useState<Ribbon>("stage1");
@@ -226,6 +235,9 @@ export default function BookEditor({
   const [tips, setTips] = useState<string[]>([]);
   const [showHfModal, setShowHfModal] = useState(false);
   const [showConsoleModal, setShowConsoleModal] = useState(false);
+  const [showPreflight, setShowPreflight] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [viewMode, setViewMode] = useState<"continuous" | "single">("continuous");
   const [toolbarPos, setToolbarPos] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -540,6 +552,7 @@ export default function BookEditor({
   const currentPageId = activePage?.id;
   const dim = PAPER_DIMENSIONS[book.paperSize];
   const stats = useMemo(() => estimateBookStats(book), [book]);
+  const preflightIssues = useMemo(() => runPreflight(book), [book]);
   const bodyFont = resolveBodyStack(book.fontId, book.customFontFamily);
   const mathFont = isCustomFamily(book.mathFontId)
     ? resolveBodyStack(book.mathFontId, book.mathFontId)
@@ -999,6 +1012,7 @@ export default function BookEditor({
 
   const deletePage = () => {
     if (book.pages.length <= 1) return;
+    if (!window.confirm(`Delete page ${activePage.number}? You can undo this action.`)) return;
     const pages = book.pages
       .filter((p) => p.id !== activePage.id)
       .map((p, i) => ({ ...p, number: i + 1 }));
@@ -1889,6 +1903,29 @@ export default function BookEditor({
     }
   };
 
+  const duplicateActivePage = () => {
+    if (!activePage) return;
+    const copy: BookPage = {
+      ...JSON.parse(JSON.stringify(activePage)),
+      id: uid("page"),
+      number: activeIndex + 2,
+      blocks: activePage.blocks.map((block) => ({ ...block, id: uid("blk") })),
+    };
+    const pages = [...book.pages];
+    pages.splice(activeIndex + 1, 0, copy);
+    commit({ ...book, pages: pages.map((page, index) => ({ ...page, number: index + 1 })) }, "Page duplicated");
+    setActivePageId(copy.id);
+  };
+
+  const goToIssue = (issue: PreflightIssue) => {
+    const page = book.pages[Math.max(0, issue.page - 1)];
+    if (!page) return;
+    setActivePageId(page.id);
+    setSelectedBlockId(issue.blockId || null);
+    setShowPreflight(false);
+    window.setTimeout(() => scrollToPage(page.id), 50);
+  };
+
   const selected = activePage?.blocks.find((b) => b.id === selectedBlockId);
 
   return (
@@ -1909,7 +1946,7 @@ export default function BookEditor({
       )}
 
       {/* Top Header Bar */}
-      <div className="h-10 flex-shrink-0 flex items-center gap-2 px-3 bg-slate-900 border-b border-slate-800">
+      <div className="h-12 flex-shrink-0 flex items-center gap-2 px-3 bg-slate-950 border-b border-slate-800">
         <button
           onClick={onClose}
           className="px-2.5 py-1 rounded-none text-[12px] font-semibold text-slate-200 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors"
@@ -1933,9 +1970,7 @@ export default function BookEditor({
         />
         {/* Mode Badge Tag */}
         <span className="text-[10.5px] font-extrabold uppercase px-2.5 py-0.5 rounded-none bg-slate-800 text-slate-300 border border-slate-700 tracking-wider">
-          {book.bookMode === "questions-only"
-            ? "Syllabus Mode"
-            : "Question Bank Mode"}
+          {book.bookMode === "questions-only" ? "Study Book" : "Question Bank"}
         </span>
 
         <span className="text-[11px] text-slate-400 hidden md:inline ml-auto">
@@ -1945,6 +1980,10 @@ export default function BookEditor({
               : "Working…"
             : "Saved"}
         </span>
+
+        <span className={`text-[10px] flex items-center gap-1 ${saveState === "error" ? "text-rose-300" : "text-slate-400"}`} role="status"><span className={`w-1.5 h-1.5 rounded-full ${saveState === "saving" ? "bg-amber-400 pulse-dot" : saveState === "error" ? "bg-rose-400" : "bg-emerald-400"}`} />{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Local"}</span>
+        <button type="button" onClick={() => setShowImport(true)} className="topbar-button"><Icon name="import" className="w-4 h-4" />Import</button>
+        <button type="button" onClick={() => setShowPreflight(true)} className="topbar-button"><Icon name="review" className="w-4 h-4" />Review{preflightIssues.length > 0 && <span className="ml-0.5 min-w-4 h-4 px-1 rounded-full bg-amber-400 text-slate-950 text-[9px] flex items-center justify-center">{preflightIssues.length}</span>}</button>
 
         <button
           type="button"
@@ -1979,8 +2018,9 @@ export default function BookEditor({
           onClick={() => exportBookPrintable(book)}
           className="px-3.5 py-1 rounded-none text-[12px] font-bold text-slate-900 bg-white hover:bg-slate-100 border border-white transition-all shadow-xs"
         >
-          Print / PDF
+          Preview &amp; Export
         </button>
+        <button type="button" onClick={() => downloadProjectBackup(book)} className="topbar-button" title="Download a restorable project backup">Backup</button>
       </div>
 
       {/* SINGLE SLEEK UNIFIED CONTROL TOOLBAR (MS Word Ribbon Box Style) */}
@@ -2275,6 +2315,19 @@ export default function BookEditor({
         />
       )}
 
+      {showImport && (
+        <div className="fixed inset-0 z-[95] bg-slate-950/45 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="import-title" onMouseDown={(event) => event.target === event.currentTarget && setShowImport(false)}>
+          <section className="w-[620px] max-w-full bg-white border border-slate-200 rounded-lg shadow-2xl overflow-hidden">
+            <header className="h-14 px-5 flex items-center border-b border-slate-200"><div><h2 id="import-title" className="text-sm font-semibold text-slate-950">Import publication content</h2><p className="text-[11px] text-slate-500">Source files are treated as untrusted content, never instructions.</p></div><button className="icon-button ml-auto" onClick={() => setShowImport(false)} aria-label="Close import"><Icon name="close" className="w-4 h-4" /></button></header>
+            <div className="p-5">
+              <div className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"><Icon name="import" className="w-7 h-7 mx-auto text-indigo-600" /><h3 className="mt-3 text-sm font-semibold text-slate-900">Choose a source</h3><p className="mt-1 text-xs text-slate-500">PDF, DOCX, TXT, PNG, JPG and WebP are supported. Legacy .doc is not advertised.</p><div className="mt-5 flex flex-wrap justify-center gap-2"><button className="primary-button" onClick={() => { setShowImport(false); fileDocRef.current?.click(); }}>PDF, DOCX or TXT</button><button className="secondary-button" onClick={() => { setShowImport(false); fileOcrRef.current?.click(); }}>Image OCR</button><button className="secondary-button" onClick={() => { setShowImport(false); pastePaper(); }}>Paste text</button></div></div>
+              <div className="mt-4 grid grid-cols-3 gap-3 text-[11px]"><div className="p-3 border border-slate-200 rounded-md"><b className="block text-slate-800">Mode</b><span className="text-slate-500">{book.bookMode === "questions-only" ? "Study Book" : "Question Bank"}</span></div><div className="p-3 border border-slate-200 rounded-md"><b className="block text-slate-800">Language</b><span className="text-slate-500">English, Tamil, bilingual</span></div><div className="p-3 border border-slate-200 rounded-md"><b className="block text-slate-800">Processing</b><span className="text-slate-500">Local extraction first; AI proxy optional</span></div></div>
+              <p className="mt-4 text-[11px] leading-5 text-slate-500">Import reports page-specific progress. Existing content is preserved unless you are importing into a new empty publication. AI answer solving remains a separate explicit action.</p>
+            </div>
+          </section>
+        </div>
+      )}
+
       {/* Professional OCR & Document Ingestion Progress Modal Overlay */}
       {ocrPct != null && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs animate-fade-in select-none">
@@ -2355,12 +2408,20 @@ export default function BookEditor({
       <input
         ref={fileDocRef}
         type="file"
-        accept=".pdf,.doc,.docx,.txt"
+        accept=".pdf,.docx,.txt"
         className="hidden"
         onChange={handleDocScan}
       />
       <div className="flex-1 flex min-h-0">
-        <div className="flex-1 overflow-auto relative">
+        <DocumentNavigator
+          book={book}
+          activePageId={currentPageId || ""}
+          onPage={(pageId, blockId) => { setActivePageId(pageId); setSelectedBlockId(blockId || null); window.setTimeout(() => scrollToPage(pageId), 30); }}
+          onAddPage={addPage}
+          onDuplicatePage={duplicateActivePage}
+          onDeletePage={deletePage}
+        />
+        <div className="flex-1 overflow-auto relative editor-pasteboard">
           {tips.length > 0 && (
             <div
               className="absolute top-2 right-2 z-10 max-w-[260px] rounded p-3 text-[11px] space-y-1 select-none no-copy placement-tips"
@@ -2398,6 +2459,7 @@ export default function BookEditor({
               const activePage = pg;
               const activeIndex = pgIdx;
               const isCurrent = pg.id === currentPageId;
+              if (viewMode === "single" && !isCurrent) return null;
               return (
                 <div
                   key={pg.id}
@@ -3434,6 +3496,15 @@ export default function BookEditor({
             )}
           </div>
         </div>
+        <ContextInspector
+          book={book}
+          selected={selected}
+          onUpdateBlock={(patch) => selected && updateBlock(selected.id, patch)}
+          onUpdateBook={commit}
+          onOpenHeaderFooter={() => setShowHfModal(true)}
+          onMove={(direction) => selected && moveBlock(selected.id, direction)}
+          onDelete={() => selected && deleteBlock(selected.id)}
+        />
       </div>
 
       {/* Bottom Status Bar */}
@@ -3453,7 +3524,7 @@ export default function BookEditor({
         <span className="opacity-60">|</span>
         <span>{book.headerFooter.layoutColumns || 2} Column Layout</span>
         <span className="opacity-60">|</span>
-        <span>{book.paperSize}</span>
+        <span>{PAPER_LABELS[book.paperSize]}</span>
         <span>
           {
             getPreset(book.fontId === "custom" ? "english-serif" : book.fontId)
@@ -3461,8 +3532,10 @@ export default function BookEditor({
           }
           {book.fontId === "custom" ? ` · ${book.customFontLabel}` : ""}
         </span>
-        <span>{stats.words} words</span>
+        <span>{book.bookMode === "qa" ? `${allMcqItems.length} questions` : `${stats.words} words`}</span>
+        <button onClick={() => setShowPreflight(true)} className={preflightIssues.some((item) => item.severity === "error") ? "text-amber-100 font-semibold" : "text-emerald-100"}>{preflightIssues.length ? `${preflightIssues.length} preflight issues` : "Preflight passed"}</button>
         <div className="flex-1" />
+        <div className="flex border border-white/25 rounded overflow-hidden"><button onClick={() => setViewMode("continuous")} className={`px-2 ${viewMode === "continuous" ? "bg-white/20" : ""}`}>Continuous</button><button onClick={() => setViewMode("single")} className={`px-2 border-l border-white/25 ${viewMode === "single" ? "bg-white/20" : ""}`}>Single page</button></div>
         <button
           onClick={() => setZoom((z) => Math.max(0.45, z - 0.08))}
           className="hover:underline"
@@ -3488,6 +3561,8 @@ export default function BookEditor({
         }
         onWatermarkUpload={handleWatermarkUpload}
       />
+
+      <PreflightPanel open={showPreflight} issues={preflightIssues} onClose={() => setShowPreflight(false)} onGoTo={goToIssue} />
 
       {/* ChatGPT OCR & Formatting Debug Console Modal */}
       <ConsoleLogsModal

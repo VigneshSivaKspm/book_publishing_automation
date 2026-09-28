@@ -6,15 +6,11 @@ import { parseDocxToPages } from './docxParse'
 import type { ContentBlock } from '../types'
 import { addLog } from './logger'
 
-export function getOpenAiApiKey(): string {
-  if (typeof window !== 'undefined') {
-    const localKey = localStorage.getItem('OPENAI_API_KEY')
-    if (localKey && localKey.trim()) return localKey.trim()
-  }
-  return import.meta.env.VITE_OPENAI_API_KEY || ''
+export function getAiProxyUrl(): string {
+  return (import.meta.env.VITE_AI_PROXY_URL || '').trim()
 }
 
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
+const AI_PROXY_URL = getAiProxyUrl()
 
 let workerPromise: Promise<Worker> | null = null
 
@@ -46,15 +42,14 @@ export interface OcrResult {
 
 /** Call OpenAI ChatGPT Vision API (gpt-4o) for ultra-fast high accuracy image question scanning */
 export async function callOpenAiVision(imageDataUrl: string): Promise<string> {
-  const apiKey = getOpenAiApiKey()
-  if (!apiKey) {
+  if (!AI_PROXY_URL) {
     addLog({
       category: 'ocr',
       level: 'error',
       title: 'ChatGPT Vision Key Missing',
-      details: 'VITE_OPENAI_API_KEY is missing from environment/settings.',
+      details: 'No server-side AI proxy is configured; local OCR remains available.',
     })
-    throw new Error('OpenAI ChatGPT API key is not configured. Please add VITE_OPENAI_API_KEY to your .env file or set it in System Settings.')
+    throw new Error('AI proxy unavailable. Using local OCR fallback.')
   }
 
   addLog({
@@ -65,11 +60,11 @@ export async function callOpenAiVision(imageDataUrl: string): Promise<string> {
     meta: { model: 'gpt-4o', temperature: 0.1, max_tokens: 4096 },
   })
 
-  const res = await fetch(OPENAI_URL, {
+  const res = await fetch(AI_PROXY_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'X-Publication-Task': 'ocr-question-bank',
     },
     body: JSON.stringify({
       model: 'gpt-4o',
@@ -150,15 +145,14 @@ RULES:
 
 /** Call OpenAI ChatGPT Vision API (gpt-4o) for FAITHFUL study-material / syllabus page transcription. */
 export async function callOpenAiDocVision(imageDataUrl: string): Promise<string> {
-  const apiKey = getOpenAiApiKey()
-  if (!apiKey) {
+  if (!AI_PROXY_URL) {
     addLog({
       category: 'ocr',
       level: 'error',
       title: 'ChatGPT Vision Key Missing',
-      details: 'VITE_OPENAI_API_KEY is missing from environment/settings.',
+      details: 'No server-side AI proxy is configured; local OCR remains available.',
     })
-    throw new Error('OpenAI ChatGPT API key is not configured. Please add VITE_OPENAI_API_KEY to your .env file or set it in System Settings.')
+    throw new Error('AI proxy unavailable. Using local OCR fallback.')
   }
 
   addLog({
@@ -169,11 +163,11 @@ export async function callOpenAiDocVision(imageDataUrl: string): Promise<string>
     meta: { model: 'gpt-4o', temperature: 0.1, max_tokens: 4096, mode: 'document' },
   })
 
-  const res = await fetch(OPENAI_URL, {
+  const res = await fetch(AI_PROXY_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'X-Publication-Task': 'ocr-study-book',
     },
     body: JSON.stringify({
       model: 'gpt-4o',
@@ -289,15 +283,14 @@ export async function extractPdfTextLayer(file: File): Promise<string[]> {
 
 /** Call OpenAI ChatGPT AI model (gpt-4o) for document text structure & question generation */
 export async function callOpenAiDocText(rawText: string): Promise<string> {
-  const apiKey = getOpenAiApiKey()
-  if (!apiKey) {
+  if (!AI_PROXY_URL) {
     addLog({
       category: 'ocr',
       level: 'error',
       title: 'ChatGPT Doc Key Missing',
-      details: 'VITE_OPENAI_API_KEY is missing.',
+      details: 'No server-side AI proxy is configured.',
     })
-    throw new Error('OpenAI ChatGPT API key is not configured. Please add VITE_OPENAI_API_KEY to your .env file or set it in System Settings.')
+    throw new Error('AI proxy unavailable. Local document parsing remains active.')
   }
 
   addLog({
@@ -307,11 +300,11 @@ export async function callOpenAiDocText(rawText: string): Promise<string> {
     details: `Sending ${rawText.length} characters of raw text to ChatGPT for publishing layout structuring...`,
   })
 
-  const res = await fetch(OPENAI_URL, {
+  const res = await fetch(AI_PROXY_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'X-Publication-Task': 'structure-document',
     },
     body: JSON.stringify({
       model: 'gpt-4o',
