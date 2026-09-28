@@ -142,7 +142,7 @@ export function applyAnswerKeyToBlocks(
     const ans = key[num]
     if (!ans) return b
     applied++
-    return { ...b, answer: ans, text: setAnswerMark(b.text, ans) }
+    return { ...b, answer: ans, answerSource: 'scanned-key' as const, text: setAnswerMark(b.text, ans) }
   })
   return { blocks: out, applied }
 }

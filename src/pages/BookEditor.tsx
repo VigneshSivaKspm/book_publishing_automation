@@ -477,7 +477,7 @@ export default function BookEditor({
     const nextPages = book.pages.map((p) => ({
       ...p,
       blocks: p.blocks.map((b) =>
-        b.id === blockId ? { ...b, answer: nextAns, text: updatedText } : b,
+        b.id === blockId ? { ...b, answer: nextAns, answerSource: "manual", text: updatedText } : b,
       ),
     }));
     commit(
@@ -487,12 +487,20 @@ export default function BookEditor({
   };
 
   const handleAiSolveAnswers = async () => {
+    if (!window.confirm("Send unanswered questions to the configured server AI provider? No changes will be applied until you approve the suggestions.")) return;
     setBusy(true);
     showToast("AI solving & checking question answers…");
     try {
       const allBlocks = book.pages.flatMap((p) => p.blocks);
       const { updatedBlocks, solvedCount } =
         await aiSolveUnansweredMcqs(allBlocks);
+
+      if (solvedCount === 0) {
+        showToast("No verified AI suggestions were returned; the source is unchanged");
+        return;
+      }
+      const suggestions = updatedBlocks.filter((block) => block.type === "mcq" && block.answerSource === "ai-inferred").slice(0, 12).map((block) => `${block.text.match(/^\s*(\d+)/)?.[1] || "?"} → ${block.answer}`).join(", ");
+      if (!window.confirm(`Review AI suggestions (${solvedCount}): ${suggestions}${solvedCount > 12 ? ", …" : ""}\n\nApply these inferred answers? They remain marked as AI-inferred.`)) return;
 
       let ptr = 0;
       const nextPages = book.pages.map((p) => {
@@ -1391,7 +1399,7 @@ export default function BookEditor({
 
       let outBlocks = result.blocks;
       let solvedCount = 0;
-      if (!isSyllabus) {
+      if (!isSyllabus && false) {
         const unanswered = outBlocks.filter(
           (b) => b.type === "mcq" && !b.answer,
         ).length;
@@ -1527,7 +1535,7 @@ export default function BookEditor({
       // 2. Question Bank: apply the scanned answer key, then AI-solve only the leftovers.
       let totalSolvedCount = 0;
       let appliedFromKey = 0;
-      if (!isSyllabus) {
+      if (!isSyllabus && false) {
         const hasKey = Object.keys(scannedKey).length > 0;
         for (let p = 0; p < contentPages.length; p++) {
           if (hasKey) {

@@ -115,6 +115,12 @@ button:disabled { cursor: not-allowed; }
 .segmented button { border-radius: 4px; font-size: 11px; color: #64748B; }
 .segmented button.active { background: white; color: #312E81; box-shadow: 0 1px 2px rgba(15,23,42,.08); font-weight: 600; }
 
+/* Superseded by the unified Import workflow and the contextual inspector. */
+button[title="Scan PDF or Document file"],
+button[title="Scan image photo with OCR"],
+button[title="Paste raw text or question paper"],
+button[title="Open AI Debug Console"] { display: none; }
+
 @media (max-width: 1279px) {
   .editor-inspector { display: none; }
   .editor-navigator { width: 188px; min-width: 188px; }
