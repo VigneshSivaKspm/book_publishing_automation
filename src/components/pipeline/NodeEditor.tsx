@@ -1,7 +1,8 @@
 import MathText from "./MathText";
 import type { ContentNode, ListItem, QuestionNode, QuestionOption, TableCell } from "../../../shared/model.ts";
 
-const input = "w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100";
+const box = "rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100";
+const input = `w-full ${box}`;
 const mono = `${input} font-mono`;
 const lbl = "text-[10px] font-semibold uppercase tracking-wide text-slate-500";
 
@@ -25,8 +26,8 @@ function OptionsEditor({ options, onChange, title = "Options" }: { options: Ques
       <span className={lbl}>{title}</span>
       {options.map((o, i) => (
         <div key={i} className="flex items-start gap-1.5">
-          <input className={`${input} w-12 text-center`} value={o.label} aria-label="Option label" onChange={(e) => onChange(options.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
-          <div className="flex-1">
+          <input className={`${box} w-12 shrink-0 text-center`} value={o.label} aria-label="Option label" onChange={(e) => onChange(options.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+          <div className="min-w-0 flex-1">
             <input className={mono} value={o.text} aria-label={`Option ${o.label}`} onChange={(e) => onChange(options.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
             {/\$/.test(o.text) && (
               <div className="px-1 text-[13px]">
@@ -145,15 +146,15 @@ function ListFields({ items, set }: { items: ListItem[]; set: (items: ListItem[]
       <span className={lbl}>Items</span>
       {items.map((it, i) => (
         <div key={i} className="flex items-start gap-1.5">
-          <input className={`${input} w-12 text-center`} value={it.marker} aria-label="Marker" onChange={(e) => set(items.map((x, j) => (j === i ? { ...x, marker: e.target.value } : x)))} />
-          <select className={`${input} w-14`} value={it.level} aria-label="Level" onChange={(e) => set(items.map((x, j) => (j === i ? { ...x, level: Number(e.target.value) } : x)))}>
+          <input className={`${box} w-12 shrink-0 text-center`} value={it.marker} aria-label="Marker" onChange={(e) => set(items.map((x, j) => (j === i ? { ...x, marker: e.target.value } : x)))} />
+          <select className={`${box} w-14 shrink-0`} value={it.level} aria-label="Level" onChange={(e) => set(items.map((x, j) => (j === i ? { ...x, level: Number(e.target.value) } : x)))}>
             {[1, 2, 3, 4].map((l) => (
               <option key={l} value={l}>
                 L{l}
               </option>
             ))}
           </select>
-          <textarea className={`${mono} flex-1`} rows={Math.min(4, Math.ceil(it.text.length / 60) || 1)} value={it.text} onChange={(e) => set(items.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
+          <textarea className={`${box} min-w-0 flex-1 font-mono`} rows={Math.min(4, Math.ceil(it.text.length / 60) || 1)} value={it.text} onChange={(e) => set(items.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
           <button className="icon-button text-rose-600" aria-label="Remove item" onClick={() => set(items.filter((_, j) => j !== i))}>
             ×
           </button>

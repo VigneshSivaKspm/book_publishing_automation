@@ -34,7 +34,7 @@ const shot = (name: string) => page.screenshot({ path: path.join(outDir, `${name
 const waitText = (t: string, timeout = 60_000) => page.waitForFunction((x) => document.body.innerText.includes(x), { timeout }, t);
 
 await page.goto(appUrl, { waitUntil: "networkidle0" });
-await clickText(page, "Sign in");
+await clickText(page, "Sign in").catch(() => {});
 await new Promise((r) => setTimeout(r, 500));
 await clickText(page, "OCR → Print");
 await waitText("OpenAI:");
@@ -70,7 +70,7 @@ await shot("08-preview");
 
 await clickText(page, "Export");
 await clickText(page, "Generate print PDF");
-await waitText("PDF pre-flight", 180_000);
+await page.waitForFunction(() => /READY FOR PRINT/.test(document.body.innerText), { timeout: 180_000 });
 await shot("09-export");
 
 console.log(errors.length ? `Browser errors:\n${errors.join("\n")}` : "No browser errors.");

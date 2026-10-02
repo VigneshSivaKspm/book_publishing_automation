@@ -45,3 +45,6 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# Server data (uploads, OCR cache, outputs)
+data/

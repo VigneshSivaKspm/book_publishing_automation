@@ -357,7 +357,8 @@
       if (el.classList.contains("chapter-start")) {
         if (page) balance();
         chapter = { title: el.getAttribute("data-title"), number: el.getAttribute("data-number") };
-        makePage("opener");
+        // Without a chapter title there is nothing to open with: use a normal page.
+        makePage(chapter.title ? "opener" : "normal");
         chapterOpenPage = true;
         continue;
       }

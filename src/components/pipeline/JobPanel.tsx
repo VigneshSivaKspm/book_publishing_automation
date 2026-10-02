@@ -87,7 +87,7 @@ export default function JobPanel({ documentId, onFinished }: { documentId: strin
           </button>
         )}
         {!running && (failed || job?.state === "cancelled") && (
-          <button className="h-9 rounded-md bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-500" onClick={() => api.process(documentId, "auto").then(() => setRunning(true))}>
+          <button className="h-9 rounded-md bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-500" onClick={() => api.process(documentId).then(() => setRunning(true))}>
             Resume (finished pages are kept)
           </button>
         )}

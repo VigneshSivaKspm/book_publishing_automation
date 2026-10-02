@@ -28,6 +28,10 @@ import { buildBookHtml } from "./render/html.ts";
 import { renderPdf, saveOutput } from "./render/pdf.ts";
 import { runPreflight } from "./render/preflight.ts";
 import { log } from "./log.ts";
+import { extractPage } from "./openai/pageOcr.ts";
+import { classifyError } from "./openai/client.ts";
+import { extractionToLegacyText } from "./openai/legacyText.ts";
+import { horizontalBands, toDataUrl } from "./ingest/image.ts";
 import {
   defaultSettings,
   nodePlainText,
@@ -122,6 +126,45 @@ export const documentRoutes: Route[] = [
     },
   },
 
+  /* ---------- single-page OCR for the legacy in-editor importers ---------- */
+  {
+    method: "POST",
+    pattern: /^\/api\/ocr\/page$/,
+    handler: async (req, res) => {
+      const body = await readJsonBody<{ image?: string; mode?: string; page?: number; totalPages?: number }>(req, 40 * 1024 * 1024);
+      const m = /^data:image\/(png|jpe?g|webp);base64,(.+)$/s.exec(body.image ?? "");
+      if (!m) throw new HttpError(400, "bad_image", "Send the page as a PNG/JPEG/WEBP data URL.");
+      const mode = body.mode === "document" ? "document" : "qa";
+      let png: Buffer;
+      try {
+        png = await sharp(Buffer.from(m[2], "base64")).rotate().flatten({ background: "#ffffff" }).png().toBuffer();
+      } catch {
+        throw new HttpError(415, "bad_image", "The page image could not be decoded.");
+      }
+      try {
+        const { page, meta } = await extractPage(
+          {
+            fullPage: await toDataUrl(png, { maxWidth: 2000 }),
+            bands: await horizontalBands(png),
+            textLayer: null,
+            pageNumber: Number(body.page) || 1,
+            totalPages: Number(body.totalPages) || 1,
+            bookTypeHint: mode === "qa" ? "question_bank" : "syllabus",
+            previousTail: null,
+            sectionState: null,
+            correctionMode: false,
+          },
+          { page: Number(body.page) || 1 },
+        );
+        sendJson(res, 200, { text: extractionToLegacyText(page, mode), confidence: page.page_confidence, problems: meta.problems, extraction: page });
+      } catch (err) {
+        const f = classifyError(err);
+        const status = f.code === "not_configured" ? 503 : f.code === "auth" ? 502 : f.code === "rate_limit" || f.code === "quota" ? 429 : 502;
+        throw new HttpError(status, f.code, f.message);
+      }
+    },
+  },
+
   /* ---------- documents ---------- */
   {
     method: "GET",
@@ -207,7 +250,9 @@ export const documentRoutes: Route[] = [
     handler: async (req, res, m) => {
       const id = docId(m);
       const body = await readJsonBody<{ bookType?: BookTypeChoice; forcePages?: number[] }>(req);
-      const choice: BookTypeChoice = body.bookType === "syllabus" || body.bookType === "question_bank" ? body.bookType : "auto";
+      const previous = readJson<{ choice?: BookTypeChoice }>(docDir(id, "job-request.json"));
+      const choice: BookTypeChoice =
+        body.bookType === "syllabus" || body.bookType === "question_bank" || body.bookType === "auto" ? body.bookType : (previous?.choice ?? "auto");
       if (!listSources(id).length) throw new HttpError(400, "no_files", "Upload at least one file first.");
       const settings = draftSettings(id);
       const job = startJob(id, { choice, settings, forcePages: (body.forcePages ?? []).filter((n) => Number.isInteger(n) && n > 0) });
