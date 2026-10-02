@@ -1,0 +1,82 @@
+{
+  "checks": [
+    {
+      "name": "Page Size",
+      "status": "pass",
+      "detail": "All 7 pages are 180 × 240 mm."
+    },
+    {
+      "name": "Fonts Embedded",
+      "status": "pass",
+      "detail": "7 font(s), all embedded."
+    },
+    {
+      "name": "Page Count",
+      "status": "pass",
+      "detail": "PDF has 7 pages; layout produced 7."
+    },
+    {
+      "name": "Searchable Text",
+      "status": "pass",
+      "detail": "11,212 characters of selectable vector text."
+    },
+    {
+      "name": "Missing Glyphs",
+      "status": "pass",
+      "detail": "No replacement glyphs; book fonts loaded."
+    },
+    {
+      "name": "Page Numbers",
+      "status": "pass",
+      "detail": "Every page carries its page number."
+    },
+    {
+      "name": "Images Present",
+      "status": "pass",
+      "detail": "1 figure asset(s), all loaded."
+    },
+    {
+      "name": "Image Resolution",
+      "status": "pass",
+      "detail": "All images ≥ 200 DPI at final size."
+    },
+    {
+      "name": "Overflow",
+      "status": "pass",
+      "detail": "No content exceeds its column."
+    },
+    {
+      "name": "Clipping / Out of Bounds",
+      "status": "pass",
+      "detail": "All content inside printable bounds."
+    },
+    {
+      "name": "Equation Validation",
+      "status": "pass",
+      "detail": "All equations rendered."
+    },
+    {
+      "name": "Blank Pages",
+      "status": "pass",
+      "detail": "No unintended blank pages."
+    },
+    {
+      "name": "Duplicate Pages",
+      "status": "pass",
+      "detail": "No duplicated pages."
+    },
+    {
+      "name": "Content Completeness",
+      "status": "pass",
+      "detail": "All 40 content blocks placed."
+    },
+    {
+      "name": "Review Issues",
+      "status": "pass",
+      "detail": "All review issues resolved."
+    }
+  ],
+  "pageCount": 7,
+  "readyForPrint": true,
+  "generatedAt": "2026-10-02T10:14:15.846Z"
+}

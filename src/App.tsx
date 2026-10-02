@@ -13,7 +13,7 @@ import Dashboard from "./pages/Dashboard";
 import Editor from "./pages/Editor";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
-import ImportQueue from "./pages/ImportQueue";
+import BookPipeline from "./pages/BookPipeline";
 import type { BookDocument, BookMode, Page } from "./types";
 import { createNewBook } from "./types";
 import { reflowBookOverflow } from "./lib/bookAi";
@@ -548,7 +548,7 @@ export default function App() {
       case "settings":
         return <Settings onNavigate={setActivePage} />;
       case "import-queue":
-        return <ImportQueue />;
+        return <BookPipeline onOpenInEditor={(book) => handleCreate(book)} />;
       default:
         return (
           <Dashboard

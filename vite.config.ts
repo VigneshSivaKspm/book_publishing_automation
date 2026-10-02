@@ -42,11 +42,14 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
-      watch: { ignored: ['**/.figma/**'] },
+      watch: { ignored: ['**/.figma/**', '**/data/**', '**/server/**'] },
+      // The OCR/typesetting API runs as a separate Node process (npm run server).
+      proxy: { '/api': { target: `http://127.0.0.1:${process.env.API_PORT || 8787}`, changeOrigin: false } },
     },
     preview: {
       host: '0.0.0.0',
       port: parseInt(process.env.PORT || '8443'),
+      proxy: { '/api': { target: `http://127.0.0.1:${process.env.API_PORT || 8787}` } },
     },
   }
 })
